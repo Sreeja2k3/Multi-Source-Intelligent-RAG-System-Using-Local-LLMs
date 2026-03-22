@@ -1,109 +1,118 @@
 # ui/app.py
+# Streamlit UI — calls the FastAPI backend instead of RAG directly.
 # Run with: streamlit run ui/app.py  (from the rag_v2/ root directory)
+# Requires API running: uvicorn api:app --reload --port 8000
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import tempfile
-from pathlib import Path
 import streamlit as st
+import requests
+import os
+from pathlib import Path
 
-from src.retrieval.vector_store import VectorStoreManager
-from src.ingestion.pipeline import IngestionPipeline
-from src.generation.rag_chain import RAGChain
+API_URL = "http://localhost:8000"
 
 st.set_page_config(page_title="RAG System", page_icon="🧠", layout="wide")
 
-# ── Session state — persists across Streamlit reruns ─────────────────────────
-if "vs" not in st.session_state:
-    vs = VectorStoreManager().create_or_load()
-    st.session_state.vs = vs
-    st.session_state.pipeline = IngestionPipeline(vs)
-    st.session_state.rag = RAGChain(vs)
+# ── Helper functions ──────────────────────────────────────────────────────────
+def get_stats():
+    try:
+        return requests.get(f"{API_URL}/stats", timeout=5).json()
+    except:
+        return {"total_chunks": 0, "collection": "unknown"}
+
+def query_api(question):
+    r = requests.post(f"{API_URL}/query", json={"question": question}, timeout=120)
+    r.raise_for_status()
+    return r.json()
+
+def ingest_url_api(url):
+    r = requests.post(f"{API_URL}/ingest/url", json={"url": url}, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+def ingest_file_api(file_bytes, filename):
+    r = requests.post(f"{API_URL}/ingest/file", files={"file": (filename, file_bytes)}, timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+def ingest_youtube_api(url):
+    r = requests.post(f"{API_URL}/ingest/youtube", json={"url": url}, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+def check_health():
+    try:
+        return requests.get(f"{API_URL}/health", timeout=3).status_code == 200
+    except:
+        return False
+
+# ── Session state ─────────────────────────────────────────────────────────────
+if "history" not in st.session_state:
     st.session_state.history = []
 
-vs = st.session_state.vs
-pipeline = st.session_state.pipeline
-rag = st.session_state.rag
+# ── Check API is running ──────────────────────────────────────────────────────
+if not check_health():
+    st.error("API is not running. Start it with: `uvicorn api:app --reload --port 8000`")
+    st.stop()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("📥 Add Sources")
-    stats = vs.get_collection_stats()
+    stats = get_stats()
     st.metric("Chunks Indexed", stats["total_chunks"])
+    st.caption(f"API: {API_URL}")
     st.divider()
 
-    # File upload
     st.subheader("Upload File")
     uploaded = st.file_uploader("PDF, DOCX, or TXT", type=["pdf", "docx", "txt"])
     if uploaded and st.button("Index File", use_container_width=True):
-        suffix = Path(uploaded.name).suffix
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(uploaded.read())
-            tmp_path = tmp.name
         try:
             with st.spinner(f"Indexing {uploaded.name}..."):
-                if suffix == ".pdf":
-                    n = pipeline.ingest_pdf(tmp_path)
-                elif suffix == ".docx":
-                    n = pipeline.ingest_docx(tmp_path)
-                else:
-                    n = pipeline.ingest_txt(tmp_path)
-            st.success(f"Indexed {n} chunks")
+                result = ingest_file_api(uploaded.read(), uploaded.name)
+            st.success(f"Indexed {result['chunks_indexed']} chunks")
             st.rerun()
         except Exception as e:
             st.error(f"Error: {e}")
-        finally:
-            os.unlink(tmp_path)
 
     st.divider()
 
-    # URL
     st.subheader("Web URL")
     url = st.text_input("URL", placeholder="https://en.wikipedia.org/wiki/...")
     if st.button("Index URL", use_container_width=True) and url:
         try:
             with st.spinner("Scraping URL..."):
-                n = pipeline.ingest_url(url)
-            st.success(f"Indexed {n} chunks")
+                result = ingest_url_api(url)
+            st.success(f"Indexed {result['chunks_indexed']} chunks")
             st.rerun()
         except Exception as e:
             st.error(f"Error: {e}")
 
     st.divider()
 
-    # YouTube
     st.subheader("YouTube")
     yt_url = st.text_input("YouTube URL", placeholder="https://youtube.com/watch?v=...")
     if st.button("Index Video", use_container_width=True) and yt_url:
         try:
             with st.spinner("Fetching transcript..."):
-                n = pipeline.ingest_youtube(yt_url)
-            st.success(f"Indexed {n} chunks")
+                result = ingest_youtube_api(yt_url)
+            st.success(f"Indexed {result['chunks_indexed']} chunks")
             st.rerun()
         except Exception as e:
             st.error(f"Error: {e}")
 
 # ── Main chat ─────────────────────────────────────────────────────────────────
 st.title("🧠 Multi-Source RAG System")
-st.caption("Ask questions about your indexed documents")
+st.caption("Powered by FastAPI + Ollama (local LLM)")
 
-# Show chat history
 for msg in st.session_state.history:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg.get("sources"):
             with st.expander(f"📚 {len(msg['sources'])} source chunks used"):
-                for i, doc in enumerate(msg["sources"], 1):
-                    meta = doc.metadata
-                    st.markdown(f"**[{i}]** `{meta.get('source_type','?')}` — "
-                                f"{meta.get('file_name', meta.get('url', ''))}")
-                    preview = doc.page_content[:300]
-                    st.text(preview + ("..." if len(doc.page_content) > 300 else ""))
+                for i, src in enumerate(msg["sources"], 1):
+                    st.markdown(f"**[{i}]** `{src.get('source_type','?')}` — "
+                                f"{src.get('file_name') or src.get('url', '')}")
                     st.divider()
 
-# Chat input
 question = st.chat_input("Ask something about your documents...")
 if question:
     st.session_state.history.append({"role": "user", "content": question})
@@ -114,23 +123,27 @@ if question:
         if stats["total_chunks"] == 0:
             st.warning("No documents indexed yet. Use the sidebar to add sources.")
         else:
-            with st.spinner("Retrieving and generating..."):
-                result = rag.query(question)
+            with st.spinner("Calling API..."):
+                try:
+                    result = query_api(question)
+                except requests.exceptions.Timeout:
+                    st.error("Request timed out. Try again.")
+                    st.stop()
+                except Exception as e:
+                    st.error(f"API error: {e}")
+                    st.stop()
 
             st.markdown(result["answer"])
 
-            if result["sources"]:
+            if result.get("sources"):
                 with st.expander(f"📚 {result['num_sources']} source chunks used"):
-                    for i, doc in enumerate(result["sources"], 1):
-                        meta = doc.metadata
-                        st.markdown(f"**[{i}]** `{meta.get('source_type','?')}` — "
-                                    f"{meta.get('file_name', meta.get('url', ''))}")
-                        preview = doc.page_content[:300]
-                        st.text(preview + ("..." if len(doc.page_content) > 300 else ""))
+                    for i, src in enumerate(result["sources"], 1):
+                        st.markdown(f"**[{i}]** `{src.get('source_type','?')}` — "
+                                    f"{src.get('file_name') or src.get('url', '')}")
                         st.divider()
 
             st.session_state.history.append({
                 "role": "assistant",
                 "content": result["answer"],
-                "sources": result["sources"],
+                "sources": result.get("sources", []),
             })
