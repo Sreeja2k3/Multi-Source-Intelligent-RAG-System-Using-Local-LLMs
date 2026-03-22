@@ -1,35 +1,100 @@
-# Multi-Source-Intelligent-RAG-System-Using-Local-LLMs
--What This Is
-Most RAG demos lock you into a single document type and depend on OpenAI's API — meaning your data leaves your machine and your costs scale with usage.
-This system solves both problems. It ingests heterogeneous knowledge sources (PDFs, live URLs, YouTube transcripts, plain text) through a unified pipeline, embeds them into a shared FAISS vector index, and answers queries using Llama 3 running entirely on local hardware via Ollama — no API keys, no internet required at inference time, no data exposure.
+# Multi-Source Intelligent RAG System Using Local LLMs
 
--Pipeline Architecture
-1. Ingestion
-Source-specific loaders parse each input type — PyPDFLoader for PDFs, WebBaseLoader for URLs, YoutubeLoader for transcripts, and direct text input — normalizing all content into LangChain Document objects.
-2. Chunking
-Documents are split using source-aware parameters. PDFs use larger chunks with higher overlap to preserve paragraph context; YouTube transcripts use smaller chunks to avoid mid-sentence breaks across timestamp boundaries.
-3. Embedding
-Each chunk is encoded using HuggingFace's all-MiniLM-L6-v2 running entirely locally — no API call, no data leaving the machine.
-4. Indexing
-Embeddings are stored in a FAISS index with source metadata preserved per chunk, enabling citation tracking at retrieval time.
-5. Retrieval
-User queries are embedded with the same model, and top-k semantically similar chunks are retrieved from FAISS.
-6. Generation
-Retrieved context is passed to Llama 3 via Ollama through a LangChain retrieval chain. The model is instructed to answer strictly from context — no hallucination from parametric memory.
-7. Response
-Answer is displayed in Streamlit alongside the source chunks and their origin (document name, page, or timestamp).
+A production-structured **Retrieval-Augmented Generation (RAG)** system that ingests documents from 5 source types and answers questions using a **fully local LLM** — no API keys, no cloud, no data leaving your machine.
 
--Key Design Decisions
-Why local inference (Ollama + Llama 3)?
-Sending documents to a cloud LLM means your data is processed on someone else's server. For sensitive domains — legal, medical, financial, internal enterprise — that's a non-starter. Running inference entirely on-device eliminates that surface area entirely.
-Why FAISS over a managed vector DB?
-No server to spin up, no network latency, no cost. FAISS runs in-process, making this fully self-contained. For a single-user local system, it's the right tradeoff.
-Why custom chunking logic?
-PDFs, web pages, and YouTube transcripts have fundamentally different structure. A flat chunking strategy degrades retrieval quality. The pipeline applies source-aware chunking — different chunk sizes and overlap ratios depending on content type — to preserve semantic coherence per source.
+Built as an AI research paper Q&A tool: index papers (RAG, Transformer, BERT) and ask questions that span multiple sources simultaneously.
 
--Tech Stack
-ComponentTechnologyRoleLLM InferenceOllama + Llama 3Local, offline generationEmbeddingsHuggingFace all-MiniLM-L6-v2Semantic vector encodingVector StoreFAISSHigh-speed similarity searchOrchestrationLangChainPipeline & retrieval chainDocument LoadersLangChain community loadersPDF, URL, YouTube, textUIStreamlitInteractive frontendLanguagePython 3.10+—
+---
 
+## Why This Exists
+
+Most RAG demos are either:
+- Cloud-dependent (your data goes to OpenAI)
+- Single-format (PDF only)
+- Missing evaluation (no way to measure quality)
+
+This system solves all three. It runs entirely on local hardware, ingests 5 source types through a unified pipeline, exposes a REST API for integration, and includes an automated evaluation pipeline to measure answer quality.
+
+---
+
+## Architecture
+
+```
+Documents (PDF / DOCX / TXT / Web URL / YouTube)
+    ↓  MultiSourceLoader — normalize to LangChain Documents
+    ↓  RecursiveCharacterTextSplitter — 512-char chunks, 50-char overlap
+    ↓  HuggingFace Embeddings (all-MiniLM-L6-v2) — 384-dim vectors
+    ↓  ChromaDB — persist vectors + metadata to disk
+
+Query (via Streamlit UI or FastAPI)
+    ↓  Embed question with same model
+    ↓  MMR retrieval — top-5 diverse, non-redundant chunks
+    ↓  Prompt: [System instructions] + [Retrieved context] + [Question]
+    ↓  Ollama (llama3.2) — local LLM generates answer
+    Answer + exact source citations (file name, page number)
+```
+
+---
+
+## Tech Stack
+
+| Component | Technology | Why |
+|-----------|-----------|-----|
+| LLM | Ollama + llama3.2 | Runs locally — zero cost, fully private |
+| Embeddings | all-MiniLM-L6-v2 (HuggingFace) | 80MB, CPU-friendly, strong semantic similarity |
+| Vector store | ChromaDB | Persists to disk, survives restarts, metadata filtering |
+| Retrieval | MMR (LangChain) | Diverse results — reduces redundancy across sources |
+| API | FastAPI + Uvicorn | REST endpoints with auto-generated Swagger docs |
+| Document loaders | LangChain Community | PDF, DOCX, TXT, web scraping, YouTube transcripts |
+| Evaluation | LLM-as-judge | Scores faithfulness, answer relevance, context quality |
+| UI | Streamlit | Chat interface calling the FastAPI backend over HTTP |
+
+---
+
+## Key Design Decisions
+
+**Why local LLM (Ollama)?**
+Data never leaves the machine. Zero per-query cost. Works offline. Suitable for sensitive documents.
+
+**Why ChromaDB?**
+Persists to disk between restarts. Supports metadata filtering. FAISS is faster but in-memory only — losing all indexed data on restart.
+
+**Why MMR over similarity search?**
+Maximal Marginal Relevance retrieves diverse chunks. Pure similarity search often returns 5 near-identical chunks from the same paragraph. MMR ensures the top-5 results cover the topic broadly, not repeatedly.
+
+**Why chunk with overlap?**
+50-character overlap prevents information loss at chunk boundaries. Without overlap, a sentence split across two chunks would be incomplete in both.
+
+**Why FastAPI over direct Python calls?**
+Separation of concerns. The UI calls the API over HTTP — any client (mobile app, another service, a script) can query the RAG system without touching the Python internals.
+
+**Why LLM-as-judge for evaluation?**
+Full RAGAS requires an external API. Using the same local Ollama model as the judge is a valid, cost-free alternative used in production systems.
+
+---
+
+## Evaluation Results
+
+Tested against 5 benchmark questions on 3 AI research papers (445 chunks total):
+
+```
+==================================================
+EVALUATION REPORT
+==================================================
+Model:               llama3.2
+Questions tested:    5
+Faithfulness:        0.62 / 1.0
+Answer relevance:    0.74 / 1.0
+Context relevance:   0.68 / 1.0
+Overall score:       0.68 / 1.0
+==================================================
+```
+
+- **Faithfulness** — does the answer only use retrieved context? (hallucination detection)
+- **Answer relevance** — does the answer actually address the question?
+- **Context relevance** — did MMR retrieval find the right chunks?
+
+---
 
 ## Setup
 
@@ -40,12 +105,12 @@ ComponentTechnologyRoleLLM InferenceOllama + Llama 3Local, offline generationEmb
 ### Install
 
 ```bash
-# Pull the LLM (2GB, one-time download)
+# 1. Pull the LLM (2GB, one-time download)
 ollama pull llama3.2
 
-# Clone and set up
-git clone https://github.com/YOUR_USERNAME/rag-research-assistant
-cd rag-research-assistant
+# 2. Clone and set up environment
+git clone https://github.com/Sreeja2k3/Multi-Source-Intelligent-RAG-System-Using-Local-LLMs
+cd Multi-Source-Intelligent-RAG-System-Using-Local-LLMs
 
 python -m venv venv
 venv\Scripts\activate        # Windows
@@ -57,50 +122,43 @@ pip install -r requirements.txt
 ### Run
 
 ```bash
-# Index documents
-python main.py ingest --pdf path/to/paper.pdf
-python main.py ingest --url https://en.wikipedia.org/wiki/Retrieval-augmented_generation
-python main.py ingest --youtube https://youtube.com/watch?v=...
+# Terminal 1 — start the FastAPI backend
+uvicorn api:app --reload --port 8000
 
-# Query via CLI
-python main.py query "Your question here"
-
-# Launch web UI
+# Terminal 2 — start the Streamlit UI
 streamlit run ui/app.py
+
+# Or use the CLI directly
+python main.py ingest --pdf papers/your_paper.pdf
+python main.py ingest --url https://en.wikipedia.org/wiki/Retrieval-augmented_generation
+python main.py query "How does the attention mechanism work?"
 
 # Run evaluation
 python evaluate.py
 ```
 
----
+### API Endpoints
 
-## Evaluation
+Visit `http://localhost:8000/docs` for interactive Swagger documentation.
 
-The system includes an automatic evaluation pipeline that measures answer quality:
-
-```
-==================================================
-EVALUATION REPORT
-==================================================
-Model:               llama3.2
-Questions tested:    5
-Faithfulness:        0.85 / 1.0   ← answer sticks to context
-Answer relevance:    0.82 / 1.0   ← answer addresses the question
-Context relevance:   0.79 / 1.0   ← right chunks retrieved
-Overall score:       0.82 / 1.0
-==================================================
-```
-
-**Faithfulness** — detects hallucination. Does the answer only use retrieved context?
-**Answer relevance** — does the answer actually address what was asked?
-**Context relevance** — did MMR retrieval find the right chunks?
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Check if API is running |
+| GET | `/stats` | Number of indexed chunks |
+| POST | `/query` | Ask a question |
+| POST | `/ingest/url` | Index a web page |
+| POST | `/ingest/file` | Upload and index a file |
+| POST | `/ingest/youtube` | Index a YouTube transcript |
 
 ---
 
 ## Project Structure
 
 ```
-rag_system/
+├── api.py                      # FastAPI REST backend
+├── main.py                     # CLI entrypoint
+├── evaluate.py                 # Evaluation runner
+├── requirements.txt
 ├── src/
 │   ├── config.py               # Centralized settings
 │   ├── ingestion/
@@ -108,53 +166,44 @@ rag_system/
 │   │   ├── chunker.py          # RecursiveCharacterTextSplitter
 │   │   └── pipeline.py         # Ingestion orchestrator
 │   ├── retrieval/
-│   │   └── vector_store.py     # ChromaDB + MMR retrieval
+│   │   └── vector_store.py     # ChromaDB + HuggingFace embeddings + MMR
 │   ├── generation/
-│   │   └── rag_chain.py        # LLM prompt + answer generation
+│   │   └── rag_chain.py        # Prompt engineering + Ollama LLM call
 │   └── evaluation/
 │       └── evaluator.py        # LLM-as-judge scoring pipeline
-├── ui/
-│   └── app.py                  # Streamlit web interface
-├── papers/                     # Index your PDFs here
-├── main.py                     # CLI entrypoint
-├── evaluate.py                 # Run evaluation suite
-└── requirements.txt
+└── ui/
+    └── app.py                  # Streamlit frontend (calls FastAPI over HTTP)
+```
 
--How It Works — Step by Step
+---
 
-Ingest — Choose one or more sources: upload a PDF, paste a URL, enter a YouTube link, or type raw text directly.
-Process — Each source is parsed by a dedicated loader, chunked using source-aware parameters, and embedded using MiniLM.
-Index — Chunks are stored in a FAISS index with metadata (source type, page/timestamp, original text).
-Query — Your question is embedded, top-k semantically similar chunks are retrieved, and the context is passed to Llama 3.
-Answer — The model responds using only the retrieved context. Source citations are displayed alongside every answer.
+## What I Learned
 
+- Chunking strategy has an outsized impact on retrieval quality — poorly chunked documents produce coherent-sounding but contextually wrong answers.
+- MMR retrieval significantly reduces redundancy in multi-source systems compared to pure similarity search.
+- Separating the UI from the backend (FastAPI + Streamlit) makes the system extensible — any client can call the same API.
+- LLM-as-judge evaluation without external APIs is viable for measuring RAG quality in local systems.
+- ChromaDB's persistent storage is critical — in-memory vector stores reset on every restart, making re-indexing a constant overhead.
 
--What I Learned Building This
+---
 
-Chunking strategy has an outsized impact on retrieval quality — poorly chunked documents produce coherent-sounding but contextually wrong answers.
-all-MiniLM-L6-v2 punches well above its size for semantic similarity on domain-specific content.
-YouTube transcript retrieval requires careful timestamp-aware chunking to avoid mid-sentence context breaks.
-LangChain's abstraction is convenient but adds latency — understanding what's happening beneath the chain matters for debugging.
+## Limitations
 
+- Single-user, local only — not architected for concurrent users
+- No conversation memory — each query is independent
+- Inference speed is hardware-dependent
+- No authentication or access control
 
--Limitations 
+---
 
-Single-user, local only — not architected for concurrent users or cloud deployment in current form.
-No persistent index — the vector store resets per session; persistence would require serializing the FAISS index to disk between runs.
-Llama 3 performance is hardware-dependent — inference speed varies significantly by available RAM and whether a GPU is present.
-No authentication or access control — not suitable for multi-user environments without additional work.
+## Roadmap
 
+- [ ] Docker support for one-command setup
+- [ ] Conversation memory for multi-turn Q&A
+- [ ] Re-ranking with a cross-encoder for improved retrieval precision
+- [ ] Support for CSV and JSON sources
+- [ ] Quantized models for lower-memory hardware
 
--Roadmap
+---
 
- Persist FAISS index across sessions
- Add support for .docx and .csv sources
- Implement re-ranking (MMR or cross-encoder) for improved retrieval precision
- Explore quantized models for lower-memory hardware
- Add conversation memory for multi-turn Q&A
-
-
-License
-MIT — use it, extend it, break it.
-
-Built to explore privacy-preserving, locally-hosted RAG pipelines as a serious alternative to cloud-dependent LLM systems.
+Built to demonstrate privacy-preserving, locally-hosted RAG as a production-viable alternative to cloud-dependent LLM systems.
