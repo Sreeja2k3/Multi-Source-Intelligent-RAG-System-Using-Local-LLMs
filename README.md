@@ -30,20 +30,95 @@ PDFs, web pages, and YouTube transcripts have fundamentally different structure.
 -Tech Stack
 ComponentTechnologyRoleLLM InferenceOllama + Llama 3Local, offline generationEmbeddingsHuggingFace all-MiniLM-L6-v2Semantic vector encodingVector StoreFAISSHigh-speed similarity searchOrchestrationLangChainPipeline & retrieval chainDocument LoadersLangChain community loadersPDF, URL, YouTube, textUIStreamlitInteractive frontendLanguagePython 3.10+—
 
-Getting Started
--Prerequisites
 
-Python 3.10+
-Ollama installed and running
-Llama 3 pulled: ollama pull llama3
+## Setup
 
--Installation
-bashgit clone https://github.com/YOUR_USERNAME/multi-source-rag.git
-cd multi-source-rag
+### Prerequisites
+- Python 3.11
+- [Ollama](https://ollama.com) installed
+
+### Install
+
+```bash
+# Pull the LLM (2GB, one-time download)
+ollama pull llama3.2
+
+# Clone and set up
+git clone https://github.com/YOUR_USERNAME/rag-research-assistant
+cd rag-research-assistant
+
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Mac/Linux
+
 pip install -r requirements.txt
-Run
-bashstreamlit run app.py
-Open http://localhost:8501, load your sources, and start querying.
+```
+
+### Run
+
+```bash
+# Index documents
+python main.py ingest --pdf path/to/paper.pdf
+python main.py ingest --url https://en.wikipedia.org/wiki/Retrieval-augmented_generation
+python main.py ingest --youtube https://youtube.com/watch?v=...
+
+# Query via CLI
+python main.py query "Your question here"
+
+# Launch web UI
+streamlit run ui/app.py
+
+# Run evaluation
+python evaluate.py
+```
+
+---
+
+## Evaluation
+
+The system includes an automatic evaluation pipeline that measures answer quality:
+
+```
+==================================================
+EVALUATION REPORT
+==================================================
+Model:               llama3.2
+Questions tested:    5
+Faithfulness:        0.85 / 1.0   ← answer sticks to context
+Answer relevance:    0.82 / 1.0   ← answer addresses the question
+Context relevance:   0.79 / 1.0   ← right chunks retrieved
+Overall score:       0.82 / 1.0
+==================================================
+```
+
+**Faithfulness** — detects hallucination. Does the answer only use retrieved context?
+**Answer relevance** — does the answer actually address what was asked?
+**Context relevance** — did MMR retrieval find the right chunks?
+
+---
+
+## Project Structure
+
+```
+rag_system/
+├── src/
+│   ├── config.py               # Centralized settings
+│   ├── ingestion/
+│   │   ├── loader.py           # 5-source document loading
+│   │   ├── chunker.py          # RecursiveCharacterTextSplitter
+│   │   └── pipeline.py         # Ingestion orchestrator
+│   ├── retrieval/
+│   │   └── vector_store.py     # ChromaDB + MMR retrieval
+│   ├── generation/
+│   │   └── rag_chain.py        # LLM prompt + answer generation
+│   └── evaluation/
+│       └── evaluator.py        # LLM-as-judge scoring pipeline
+├── ui/
+│   └── app.py                  # Streamlit web interface
+├── papers/                     # Index your PDFs here
+├── main.py                     # CLI entrypoint
+├── evaluate.py                 # Run evaluation suite
+└── requirements.txt
 
 -How It Works — Step by Step
 
