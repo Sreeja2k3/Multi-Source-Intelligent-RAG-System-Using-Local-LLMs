@@ -1,9 +1,8 @@
 # Multi-Source Intelligent RAG System Using Local LLMs
 
 A production-structured **Retrieval-Augmented Generation (RAG)** system that ingests documents from 5 source types and answers questions using a **fully local LLM** — no API keys, no cloud, no data leaving your machine.
-![Demo](demo.gif)
 
-Built as an AI research paper Q&A tool: index papers (RAG, Transformer, BERT) and ask questions that span multiple sources simultaneously.
+![Demo](demo.gif)
 
 ---
 
