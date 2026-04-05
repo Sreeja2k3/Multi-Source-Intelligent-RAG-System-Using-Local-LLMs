@@ -19,6 +19,9 @@ data/chroma_db/
 .vscode/
 .idea/
 
+# Claude Code
+CLAUDE.md
+
 # OS
 Thumbs.db
 Desktop.ini
