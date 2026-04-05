@@ -208,6 +208,26 @@ def ingest_url(request: IngestURLRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class DeleteSourceRequest(BaseModel):
+    source_name: str
+
+
+@app.delete("/clear", response_model=IngestResponse)
+def clear_index():
+    """Delete ALL documents from the vector store."""
+    n = vs.clear_collection()
+    logger.warning(f"Cleared entire index: {n} chunks deleted")
+    return IngestResponse(message=f"Cleared all documents", chunks_indexed=n)
+
+
+@app.delete("/source", response_model=IngestResponse)
+def delete_source(request: DeleteSourceRequest):
+    """Delete all chunks from a specific source (by file name or URL)."""
+    n = vs.delete_by_source(request.source_name)
+    if n == 0:
+        raise HTTPException(status_code=404, detail=f"No chunks found for source: {request.source_name}")
+    return IngestResponse(message=f"Deleted source: {request.source_name}", chunks_indexed=n)
+
 @app.post("/ingest/file", response_model=IngestResponse)
 def ingest_file(file: UploadFile = File(...)):
     """

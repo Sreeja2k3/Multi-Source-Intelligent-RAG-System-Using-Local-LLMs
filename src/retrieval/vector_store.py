@@ -119,6 +119,34 @@ class VectorStoreManager:
         count = self.vector_store._collection.count() if self.vector_store else 0
         return {"total_chunks": count, "collection": settings.COLLECTION_NAME}
 
+    def clear_collection(self) -> int:
+        """Delete all documents from the collection. Returns number of chunks deleted."""
+        if not self.vector_store:
+            return 0
+        count = self.vector_store._collection.count()
+        if count == 0:
+            return 0
+        # Get all IDs and delete them
+        all_ids = self.vector_store._collection.get()["ids"]
+        self.vector_store._collection.delete(ids=all_ids)
+        logger.success(f"Cleared {count} chunks from collection")
+        return count
+
+    def delete_by_source(self, source_name: str) -> int:
+        """Delete all chunks from a specific source. Returns number deleted."""
+        if not self.vector_store or self.vector_store._collection.count() == 0:
+            return 0
+        result = self.vector_store._collection.get()
+        ids_to_delete = []
+        for doc_id, meta in zip(result["ids"], result["metadatas"]):
+            name = meta.get("file_name") or meta.get("url") or ""
+            if name == source_name:
+                ids_to_delete.append(doc_id)
+        if ids_to_delete:
+            self.vector_store._collection.delete(ids=ids_to_delete)
+            logger.success(f"Deleted {len(ids_to_delete)} chunks from source: {source_name}")
+        return len(ids_to_delete)
+
     def get_source_list(self) -> List[str]:
         """Get list of unique source file names/URLs in the collection."""
         if not self.vector_store or self.vector_store._collection.count() == 0:
