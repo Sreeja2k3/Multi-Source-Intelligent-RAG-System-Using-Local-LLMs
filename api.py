@@ -72,9 +72,15 @@ logger.success("RAG system ready.")
 # Interview Q: "What is Pydantic?" → Data validation library. Define a model,
 # FastAPI automatically validates incoming JSON against it.
 
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
 class QueryRequest(BaseModel):
     question: str
-    top_k: Optional[int] = 5  # how many chunks to retrieve
+    top_k: Optional[int] = 5
+    chat_history: Optional[list[ChatMessage]] = None
+    source_filter: Optional[str] = None  # filter by file name or source type
 
 class SourceItem(BaseModel):
     source_type: str
@@ -118,6 +124,12 @@ def get_stats():
     return vs.get_collection_stats()
 
 
+@app.get("/sources")
+def get_sources():
+    """Return list of unique source names in the index."""
+    return {"sources": vs.get_source_list()}
+
+
 @app.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest):
     """
@@ -140,7 +152,18 @@ def query(request: QueryRequest):
         )
 
     logger.info(f"Query: {request.question}")
-    result = rag.query(request.question)
+
+    # Build metadata filter if source_filter is provided
+    filter_dict = None
+    if request.source_filter:
+        filter_dict = {"file_name": request.source_filter}
+
+    # Pass chat history for conversation memory
+    history = None
+    if request.chat_history:
+        history = [{"role": m.role, "content": m.content} for m in request.chat_history]
+
+    result = rag.query(request.question, chat_history=history)
 
     # Format sources for the response
     sources = []
@@ -192,10 +215,11 @@ def ingest_file(file: UploadFile = File(...)):
     Send as multipart/form-data with key 'file'.
     """
     suffix = Path(file.filename).suffix.lower()
-    if suffix not in [".pdf", ".docx", ".txt"]:
+    supported = [".pdf", ".docx", ".txt", ".csv", ".json"]
+    if suffix not in supported:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: {suffix}. Use PDF, DOCX, or TXT."
+            detail=f"Unsupported file type: {suffix}. Use: {', '.join(supported)}"
         )
 
     # Save to temp file — FastAPI gives us a file object, not a path
@@ -205,12 +229,14 @@ def ingest_file(file: UploadFile = File(...)):
 
     try:
         logger.info(f"Ingesting file: {file.filename}")
-        if suffix == ".pdf":
-            n = pipeline.ingest_pdf(tmp_path)
-        elif suffix == ".docx":
-            n = pipeline.ingest_docx(tmp_path)
-        else:
-            n = pipeline.ingest_txt(tmp_path)
+        ingest_map = {
+            ".pdf": pipeline.ingest_pdf,
+            ".docx": pipeline.ingest_docx,
+            ".txt": pipeline.ingest_txt,
+            ".csv": pipeline.ingest_csv,
+            ".json": pipeline.ingest_json,
+        }
+        n = ingest_map[suffix](tmp_path)
 
         return IngestResponse(
             message=f"Successfully indexed {file.filename}",

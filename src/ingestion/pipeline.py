@@ -13,8 +13,7 @@ class IngestionPipeline:
 
     def _run(self, docs) -> int:
         chunks = self.chunker.chunk_documents(docs)
-        self.vs.add_documents(chunks)
-        return len(chunks)
+        return self.vs.add_documents(chunks)
 
     def ingest_pdf(self, path: str) -> int:
         return self._run(self.loader.load_pdf(path))
@@ -24,6 +23,12 @@ class IngestionPipeline:
 
     def ingest_txt(self, path: str) -> int:
         return self._run(self.loader.load_txt(path))
+
+    def ingest_csv(self, path: str) -> int:
+        return self._run(self.loader.load_csv(path))
+
+    def ingest_json(self, path: str) -> int:
+        return self._run(self.loader.load_json(path))
 
     def ingest_url(self, url: str) -> int:
         return self._run(self.loader.load_url(url))

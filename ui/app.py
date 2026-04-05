@@ -1,11 +1,10 @@
 # ui/app.py
-# Streamlit UI — calls the FastAPI backend instead of RAG directly.
-# Run with: streamlit run ui/app.py  (from the rag_v2/ root directory)
+# Streamlit UI — calls the FastAPI backend over HTTP.
+# Run with: streamlit run ui/app.py
 # Requires API running: uvicorn api:app --reload --port 8000
 
 import streamlit as st
 import requests
-import os
 from pathlib import Path
 
 API_URL = "http://localhost:8000"
@@ -19,8 +18,19 @@ def get_stats():
     except:
         return {"total_chunks": 0, "collection": "unknown"}
 
-def query_api(question):
-    r = requests.post(f"{API_URL}/query", json={"question": question}, timeout=120)
+def get_sources():
+    try:
+        return requests.get(f"{API_URL}/sources", timeout=5).json().get("sources", [])
+    except:
+        return []
+
+def query_api(question, chat_history=None, source_filter=None):
+    payload = {"question": question}
+    if chat_history:
+        payload["chat_history"] = chat_history
+    if source_filter and source_filter != "All Sources":
+        payload["source_filter"] = source_filter
+    r = requests.post(f"{API_URL}/query", json=payload, timeout=120)
     r.raise_for_status()
     return r.json()
 
@@ -62,8 +72,21 @@ with st.sidebar:
     st.caption(f"API: {API_URL}")
     st.divider()
 
+    # Source filter dropdown
+    sources = get_sources()
+    source_options = ["All Sources"] + sources
+    selected_source = st.selectbox("Filter by source", source_options)
+    st.divider()
+
+    # Clear chat button
+    if st.button("Clear Chat History", use_container_width=True):
+        st.session_state.history = []
+        st.rerun()
+
+    st.divider()
+
     st.subheader("Upload File")
-    uploaded = st.file_uploader("PDF, DOCX, or TXT", type=["pdf", "docx", "txt"])
+    uploaded = st.file_uploader("PDF, DOCX, TXT, CSV, or JSON", type=["pdf", "docx", "txt", "csv", "json"])
     if uploaded and st.button("Index File", use_container_width=True):
         try:
             with st.spinner(f"Indexing {uploaded.name}..."):
@@ -101,7 +124,7 @@ with st.sidebar:
 
 # ── Main chat ─────────────────────────────────────────────────────────────────
 st.title("🧠 Multi-Source RAG System")
-st.caption("Powered by FastAPI + Ollama (local LLM)")
+st.caption("Powered by FastAPI + Ollama (local LLM) | Conversation memory enabled")
 
 for msg in st.session_state.history:
     with st.chat_message(msg["role"]):
@@ -123,9 +146,19 @@ if question:
         if stats["total_chunks"] == 0:
             st.warning("No documents indexed yet. Use the sidebar to add sources.")
         else:
-            with st.spinner("Calling API..."):
+            # Build chat history for conversation memory
+            chat_history = []
+            for msg in st.session_state.history[:-1]:  # exclude current question
+                if msg["role"] in ("user", "assistant"):
+                    chat_history.append({"role": msg["role"], "content": msg["content"]})
+
+            with st.spinner("Thinking..."):
                 try:
-                    result = query_api(question)
+                    result = query_api(
+                        question,
+                        chat_history=chat_history if chat_history else None,
+                        source_filter=selected_source,
+                    )
                 except requests.exceptions.Timeout:
                     st.error("Request timed out. Try again.")
                     st.stop()
