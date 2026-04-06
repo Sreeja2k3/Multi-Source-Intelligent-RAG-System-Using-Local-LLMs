@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared import (
     apply_theme, init_state, page_header, metric_card,
     check_health, get_health_info, get_stats, get_sources,
+    page_loader, quick_loader, brand_bar,
     APP_NAME, APP_EMOJI,
 )
 
@@ -16,10 +17,25 @@ apply_theme()
 init_state()
 
 # ── Prefetch data ────────────────────────────────────────────────────────────
-api_ok = check_health()
-health = get_health_info()
-stats = get_stats()
-sources = get_sources()
+if "about_loaded" not in st.session_state:
+    _pl = page_loader("\u2139\ufe0f", "About", ["Checking system health...", "Reading model info...", "Loading stats..."])
+    api_ok = check_health()
+    health = get_health_info()
+    stats = get_stats()
+    sources = get_sources()
+    _pl.empty()
+    st.session_state.about_loaded = True
+else:
+    _show_ql = st.session_state.get("_last_page") != "about"
+    if _show_ql:
+        _ql = quick_loader("Loading system info...")
+    api_ok = check_health()
+    health = get_health_info()
+    stats = get_stats()
+    sources = get_sources()
+    if _show_ql:
+        _ql.empty()
+st.session_state._last_page = "about"
 
 page_header("\u2139\ufe0f", "About Loca", "System status & project info")
 

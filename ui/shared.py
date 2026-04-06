@@ -45,21 +45,67 @@ section[data-testid="stSidebar"] {
 }
 
 section[data-testid="stSidebar"] .block-container {
-    padding-top: 0.8rem;
+    padding-top: 0.5rem;
 }
 
 section[data-testid="stSidebar"] .stTextInput input {
     background-color: #1a1a2e !important;
     border: 1px solid #2a2a4a !important;
     border-radius: 8px;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
+    padding: 0.4rem 0.7rem !important;
 }
 
 section[data-testid="stSidebar"] .stButton > button {
     border-radius: 8px;
     font-weight: 500;
-    transition: all 0.2s ease;
-    font-size: 0.85rem;
+    transition: all 0.15s ease;
+    font-size: 0.82rem;
+    padding: 0.35rem 0.6rem !important;
+}
+
+/* Compact chat list buttons */
+section[data-testid="stSidebar"] .stButton > button[kind="secondary"] {
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    text-align: left !important;
+    font-size: 0.8rem !important;
+    padding: 0.4rem 0.5rem !important;
+    color: #888 !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    height: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+}
+
+section[data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover {
+    background: #1a1a2e !important;
+    color: #c0c0c0 !important;
+    border-radius: 8px !important;
+}
+
+/* Tight spacing in sidebar */
+section[data-testid="stSidebar"] .stVerticalBlock > div {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+section[data-testid="stSidebar"] .stMarkdown {
+    margin-bottom: 0 !important;
+}
+
+/* Chat list rows — consistent height and alignment */
+section[data-testid="stSidebar"] .stColumns {
+    gap: 0.1rem !important;
+    margin-bottom: 0.15rem !important;
+    align-items: center !important;
+}
+
+/* Source filter dropdown compact */
+section[data-testid="stSidebar"] .stSelectbox > div {
+    font-size: 0.8rem;
 }
 
 /* ── Page header ───────────────────────────────────────── */
@@ -122,11 +168,9 @@ section[data-testid="stSidebar"] .stButton > button {
     margin: 0 0 0.8rem 0;
 }
 
-/* ── Chat messages ─────────────────────────────────────── */
-div[data-testid="stChatMessage"] {
-    padding: 0.8rem 1rem;
-    border-radius: 12px;
-    margin-bottom: 0.3rem;
+/* ── Chat action icon buttons ──────────────────────────── */
+.block-container .stButton > button[kind="secondary"] {
+    transition: opacity 0.15s ease;
 }
 
 /* ── Animated loader ───────────────────────────────────── */
@@ -190,31 +234,9 @@ div[data-testid="stStatusWidget"] [data-testid="stMarkdownContainer"] p {
     padding: 0.15rem 0;
 }
 
-/* ── New Chat button ───────────────────────────────────── */
-.new-chat-btn > button {
-    background-color: #2563eb !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 8px !important;
+/* ── Primary button styling ─────────────────────────────── */
+section[data-testid="stSidebar"] .stButton > button[kind="primary"] {
     font-weight: 600 !important;
-}
-
-.new-chat-btn > button:hover {
-    background-color: #1d4ed8 !important;
-}
-
-/* ── Delete button ─────────────────────────────────────── */
-.delete-btn > button {
-    background-color: transparent !important;
-    color: #ef4444 !important;
-    border: 1px solid #ef4444 !important;
-    font-size: 0.75rem !important;
-    padding: 0.2rem 0.4rem !important;
-}
-
-.delete-btn > button:hover {
-    background-color: #ef4444 !important;
-    color: white !important;
 }
 
 /* ── Source card ────────────────────────────────────────── */
@@ -629,6 +651,15 @@ def stream_response(text):
         yield word + (" " if i < len(words) - 1 else "")
         time.sleep(0.02)
 
+def brand_bar():
+    """Show Loca logo + title in the top-left corner of every page."""
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:0.5rem;padding-bottom:0.8rem;border-bottom:1px solid #1e1e2e;margin-bottom:1rem;">
+        <span style="font-size:1.5rem;">{APP_EMOJI}</span>
+        <span style="font-size:1.2rem;font-weight:700;letter-spacing:-0.3px;">{APP_NAME}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
 def page_header(icon, title, subtitle=""):
     sub_html = f'<span class="subtitle">{subtitle}</span>' if subtitle else ""
     st.markdown(f"""
@@ -650,6 +681,66 @@ def apply_theme():
     if "theme_applied" not in st.session_state:
         st.session_state.theme_applied = True
     st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
+
+def quick_loader(title="Loading..."):
+    """Branded logo + title + dot animation loader. Returns the placeholder to call .empty() on."""
+    holder = st.empty()
+    holder.markdown(f"""
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:5rem 0;">
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;">
+        <span style="font-size:2rem;">{APP_EMOJI}</span>
+        <span style="font-size:1.5rem;font-weight:700;">{APP_NAME}</span>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:0.8rem;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#60a5fa;animation:ql-dot 1.4s ease-in-out infinite;animation-delay:0s;"></span>
+        <span style="width:8px;height:8px;border-radius:50%;background:#60a5fa;animation:ql-dot 1.4s ease-in-out infinite;animation-delay:0.2s;"></span>
+        <span style="width:8px;height:8px;border-radius:50%;background:#60a5fa;animation:ql-dot 1.4s ease-in-out infinite;animation-delay:0.4s;"></span>
+    </div>
+    <div style="font-size:0.85rem;color:#666;">{title}</div>
+</div>
+<style>@keyframes ql-dot{{0%,80%,100%{{opacity:0.2;transform:scale(0.8);}}40%{{opacity:1;transform:scale(1.3);}}}}</style>
+    """, unsafe_allow_html=True)
+    return holder
+
+
+def page_loader(emoji, title, steps_text):
+    """
+    Show a branded page loader while data is being fetched.
+    Returns a context manager-like tuple: (placeholder, status).
+
+    Usage:
+        loader = page_loader("📚", "Knowledge Base", ["Checking backend...", "Loading sources..."])
+        # ... do API calls ...
+        loader.empty()
+    """
+    holder = st.empty()
+    # Build steps HTML
+    steps_items = ""
+    for i, step in enumerate(steps_text):
+        if i == 0:
+            steps_items += f'<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;"><div style="width:8px;height:8px;border-radius:50%;background:#60a5fa;animation:pg-pulse 1.2s ease-in-out infinite;"></div><span style="font-size:0.82rem;color:#93c5fd;">{step}</span></div>'
+        else:
+            steps_items += f'<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;"><div style="width:8px;height:8px;border-radius:50%;background:#2a2a4a;"></div><span style="font-size:0.82rem;color:#444;">{step}</span></div>'
+
+    holder.markdown(f"""
+<style>
+@keyframes pg-pulse {{
+    0%, 100% {{ opacity: 0.4; transform: scale(0.9); }}
+    50% {{ opacity: 1; transform: scale(1.2); }}
+}}
+@keyframes pg-spin {{
+    to {{ transform: rotate(360deg); }}
+}}
+</style>
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem 0;animation:fadeIn 0.2s ease;">
+    <div style="font-size:2.5rem;margin-bottom:0.5rem;">{emoji}</div>
+    <div style="font-size:1.3rem;font-weight:600;margin-bottom:0.3rem;">{title}</div>
+    <div style="width:30px;height:30px;border:3px solid #2a2a4a;border-top:3px solid #60a5fa;border-radius:50%;animation:pg-spin 0.8s linear infinite;margin:1rem 0;"></div>
+    <div style="margin-top:0.5rem;">{steps_items}</div>
+</div>
+    """, unsafe_allow_html=True)
+    return holder
+
 
 def require_api():
     """Check API health and show error if offline. Returns True if API is OK."""
