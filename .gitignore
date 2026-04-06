@@ -21,6 +21,10 @@ data/chroma_db/
 
 # Claude Code
 CLAUDE.md
+.claude/
+
+# UI runtime state
+ui/chat_history.json
 
 # OS
 Thumbs.db
