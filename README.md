@@ -218,4 +218,4 @@ Visit `http://localhost:8000/docs` for interactive Swagger documentation.
 
 ---
 
-Built to demonstrate privacy-preserving, locally-hosted RAG as a production-viable alternative to cloud-dependent LLM systems.
+Built to demonstrate privacy-preserving, locally-hosted RAG as a production-viable alternative to cloud-dependent LLM systems
