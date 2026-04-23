@@ -2,7 +2,11 @@
 
 A production-structured **Retrieval-Augmented Generation (RAG)** system that ingests documents from 5 source types and answers questions using a **fully local LLM** — no API keys, no cloud, no data leaving your machine.
 
-![Demo](demo.gif)
+## Screenshots
+
+![Chat Interface](screenshots/chat.png)
+![Knowledge Base](screenshots/knowledge.png)
+![About Page](screenshots/about.png)
 
 ---
 
@@ -172,7 +176,15 @@ Visit `http://localhost:8000/docs` for interactive Swagger documentation.
 │   └── evaluation/
 │       └── evaluator.py        # LLM-as-judge scoring pipeline
 └── ui/
-    └── app.py                  # Streamlit frontend (calls FastAPI over HTTP)
+    ├── app.py                  # Streamlit multi-page app entrypoint
+    ├── shared.py               # Shared UI utilities and API helpers
+    ├── assets/
+    │   ├── logo.png            # App branding logo
+    │   └── logo_icon.png       # Sidebar icon
+    └── pages/
+        ├── chat.py             # Chat interface for querying the RAG system
+        ├── knowledge.py        # Knowledge base management (ingest documents)
+        └── about.py            # About page with system info
 ```
 
 ---
@@ -206,4 +218,4 @@ Visit `http://localhost:8000/docs` for interactive Swagger documentation.
 
 ---
 
-Built to demonstrate privacy-preserving, locally-hosted RAG as a production-viable alternative to cloud-dependent LLM systems.
+Built to demonstrate privacy-preserving, locally-hosted RAG as a production-viable alternative to cloud-dependent LLM systems

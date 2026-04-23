@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     RETRIEVAL_TOP_K: int = 5
     RETRIEVAL_STRATEGY: Literal["mmr", "similarity"] = "mmr"
 
+    # Re-ranking
+    USE_RERANKER: bool = True
+    RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+    # Conversation memory
+    MEMORY_WINDOW: int = 6  # number of past messages to include
+
+    # Evaluation
+    JUDGE_MODEL: str = "llama3.2"  # change to a different model for independent judging
+
     model_config = {"env_file": ".env"}
     # NOTE: In pydantic-settings v2, use model_config dict, NOT inner class Config.
     # The old `class Config: env_file = ".env"` pattern causes a warning in v2.
