@@ -242,10 +242,13 @@ def ingest_file(file: UploadFile = File(...)):
             detail=f"Unsupported file type: {suffix}. Use: {', '.join(supported)}"
         )
 
-    # Save to temp file — FastAPI gives us a file object, not a path
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(file.file.read())
-        tmp_path = tmp.name
+    # Save to a temp directory under the ORIGINAL filename so that
+    # metadata["file_name"] (derived from the path by the loader) shows
+    # the real name instead of a random tmpXXXX.pdf.
+    tmp_dir = tempfile.mkdtemp()
+    tmp_path = os.path.join(tmp_dir, file.filename)
+    with open(tmp_path, "wb") as f:
+        f.write(file.file.read())
 
     try:
         logger.info(f"Ingesting file: {file.filename}")
@@ -265,7 +268,12 @@ def ingest_file(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        os.unlink(tmp_path)  # always clean up temp file
+        # Clean up the temp file and its directory
+        try:
+            os.unlink(tmp_path)
+            os.rmdir(tmp_dir)
+        except OSError:
+            pass
 
 
 @app.post("/ingest/youtube", response_model=IngestResponse)
