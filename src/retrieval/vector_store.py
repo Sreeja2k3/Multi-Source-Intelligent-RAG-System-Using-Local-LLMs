@@ -4,7 +4,6 @@ from typing import List, Optional
 from loguru import logger
 from langchain_core.documents import Document
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
 from src.config import settings
 
 
@@ -25,6 +24,7 @@ class VectorStoreManager:
                 model="nomic-embed-text",
             )
         else:
+            from langchain_huggingface import HuggingFaceEmbeddings
             logger.info(f"Loading local embedding model: {settings.EMBEDDING_MODEL}")
             self.embeddings = HuggingFaceEmbeddings(
                 model_name=settings.EMBEDDING_MODEL,
