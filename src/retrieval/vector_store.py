@@ -17,6 +17,13 @@ class VectorStoreManager:
             self.embeddings = OpenAIEmbeddings(
                 api_key=settings.OPENAI_API_KEY,
             )
+        elif settings.EMBEDDING_PROVIDER == "groq":
+            from langchain_groq import GroqEmbeddings
+            logger.info("Using cloud GroqEmbeddings...")
+            self.embeddings = GroqEmbeddings(
+                api_key=settings.GROQ_API_KEY,
+                model="nomic-embed-text",
+            )
         else:
             logger.info(f"Loading local embedding model: {settings.EMBEDDING_MODEL}")
             self.embeddings = HuggingFaceEmbeddings(

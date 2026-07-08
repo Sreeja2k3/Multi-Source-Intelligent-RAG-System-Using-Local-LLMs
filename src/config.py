@@ -6,7 +6,7 @@ from typing import Literal, Optional
 class Settings(BaseSettings):
     # Pluggable Providers
     LLM_PROVIDER: Literal["ollama", "openai", "groq"] = "ollama"
-    EMBEDDING_PROVIDER: Literal["local", "openai"] = "local"
+    EMBEDDING_PROVIDER: Literal["local", "openai", "groq"] = "local"
     OPENAI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
     DB_PATH: str = "./data/rag_system.db"
