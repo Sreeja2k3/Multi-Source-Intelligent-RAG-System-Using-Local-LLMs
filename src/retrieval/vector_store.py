@@ -17,11 +17,12 @@ class VectorStoreManager:
                 api_key=settings.OPENAI_API_KEY,
             )
         elif settings.EMBEDDING_PROVIDER == "groq":
-            from langchain_groq import GroqEmbeddings
-            logger.info("Using cloud GroqEmbeddings...")
-            self.embeddings = GroqEmbeddings(
-                api_key=settings.GROQ_API_KEY,
-                model="nomic-embed-text",
+            from langchain_openai import OpenAIEmbeddings
+            logger.info("Using cloud Groq (Nomic) Embeddings...")
+            self.embeddings = OpenAIEmbeddings(
+                openai_api_base="https://api.groq.com/openai/v1",
+                openai_api_key=settings.GROQ_API_KEY,
+                model="nomic-embed-text-v1.5",
             )
         else:
             from langchain_huggingface import HuggingFaceEmbeddings
