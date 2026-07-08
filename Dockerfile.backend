@@ -9,10 +9,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install (filtering out heavy local-only packages for cloud memory compliance)
+# Copy requirements and install
 COPY requirements.txt .
-RUN python -c "f=open('requirements.txt'); lines=[l for l in f if 'sentence-transformers' not in l and 'langchain-huggingface' not in l]; f.close(); w=open('requirements_cloud.txt','w'); w.writelines(lines); w.close()" && \
-    pip install --no-cache-dir -r requirements_cloud.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
 COPY src/ ./src/

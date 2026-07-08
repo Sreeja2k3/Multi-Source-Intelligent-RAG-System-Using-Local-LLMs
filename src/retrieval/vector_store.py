@@ -8,34 +8,19 @@ from src.config import settings
 
 
 from langchain_core.embeddings import Embeddings
-import requests
+from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 
-class GroqCloudEmbeddings(Embeddings):
-    def __init__(self, api_key: str, model: str = "nomic-embed-text-v1.5"):
-        self.api_key = api_key
-        self.model = model
-        self.url = "https://api.groq.com/openai/v1/embeddings"
-
-    def _embed(self, texts: List[str]) -> List[List[float]]:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "input": texts,
-            "model": self.model
-        }
-        res = requests.post(self.url, json=payload, headers=headers)
-        if res.status_code != 200:
-            raise RuntimeError(f"Groq embedding failed: {res.text}")
-        data = res.json()
-        return [item["embedding"] for item in data["data"]]
+class ChromaONNXEmbeddings(Embeddings):
+    def __init__(self):
+        # ChromaDB's built-in ONNX embedding model (~15MB download on first run)
+        # It runs on CPU using ONNX Runtime (under 30MB memory, 0MB PyTorch dependency)
+        self._ef = ONNXMiniLM_L6_V2()
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        return self._embed(texts)
+        return self._ef(texts)
 
     def embed_query(self, text: str) -> List[float]:
-        return self._embed([text])[0]
+        return self._ef([text])[0]
 
 
 class VectorStoreManager:
@@ -47,20 +32,9 @@ class VectorStoreManager:
             self.embeddings = OpenAIEmbeddings(
                 api_key=settings.OPENAI_API_KEY,
             )
-        elif settings.EMBEDDING_PROVIDER == "groq":
-            logger.info("Using custom Groq (Nomic) Embeddings client...")
-            self.embeddings = GroqCloudEmbeddings(
-                api_key=settings.GROQ_API_KEY,
-                model="nomic-embed-text-v1.5",
-            )
         else:
-            from langchain_huggingface import HuggingFaceEmbeddings
-            logger.info(f"Loading local embedding model: {settings.EMBEDDING_MODEL}")
-            self.embeddings = HuggingFaceEmbeddings(
-                model_name=settings.EMBEDDING_MODEL,
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={"normalize_embeddings": True},
-            )
+            logger.info("Using local CPU-efficient ONNX embeddings (all-MiniLM-L6-v2)...")
+            self.embeddings = ChromaONNXEmbeddings()
         self.vector_store: Optional[Chroma] = None
         self._reranker = None
 
