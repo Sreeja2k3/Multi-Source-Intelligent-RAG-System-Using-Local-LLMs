@@ -1,6 +1,7 @@
 # ui/pages/knowledge.py — Knowledge Base Management
 
 import time
+from datetime import datetime
 import streamlit as st
 import requests
 
@@ -12,7 +13,7 @@ from shared import (
     apply_theme, init_state, check_health, page_header, metric_card,
     get_stats, get_sources, page_loader, quick_loader, brand_bar,
     ingest_file_api, ingest_url_api, ingest_youtube_api,
-    delete_source_api, clear_index_api,
+    delete_source_api, clear_index_api, get_ingestion_logs_api,
     API_URL,
 )
 
@@ -196,10 +197,64 @@ if sources:
 else:
     st.markdown("""
     <div style="text-align:center; padding:2rem; color:#666;">
-        <div style="font-size:2rem; margin-bottom:0.5rem;">\U0001f4ed</div>
+        <div style="font-size:2rem; margin-bottom:0.5rem;">📥</div>
         <p>No sources indexed yet. Use the tabs above to add documents.</p>
     </div>
     """, unsafe_allow_html=True)
+
+
+# ── Ingestion & Upload History ───────────────────────────────────────────────
+
+st.markdown("---")
+st.markdown("### 📋 Ingestion & Upload History")
+
+logs = get_ingestion_logs_api()
+if logs:
+    import pandas as pd
+    
+    table_data = []
+    for log in logs:
+        # Format size
+        size_bytes = log.get("file_size", 0)
+        if size_bytes >= 1024 * 1024:
+            size_str = f"{size_bytes / (1024 * 1024):.2f} MB"
+        elif size_bytes >= 1024:
+            size_str = f"{size_bytes / 1024:.2f} KB"
+        else:
+            size_str = f"{size_bytes} B" if size_bytes > 0 else "-"
+            
+        status_icon = "🟢 Success" if log.get("status") == "success" else "🔴 Failed"
+        
+        # Parse timestamp
+        dt_str = log.get("ingested_at")
+        try:
+            # Handle SQLite datetime string format
+            dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            date_str = dt.strftime("%Y-%m-%d %H:%M")
+        except:
+            date_str = dt_str.split(".")[0] if dt_str else "-"
+            
+        table_data.append({
+            "Source / File Name": log.get("file_name"),
+            "Type": log.get("source_type").upper(),
+            "Size": size_str,
+            "Chunks": log.get("chunk_count", 0),
+            "Ingestion Date": date_str,
+            "Status": status_icon,
+            "Error / Details": log.get("error_message") or "-"
+        })
+    df = pd.DataFrame(table_data)
+    st.dataframe(
+        df,
+        use_container_width=True,
+        column_config={
+            "Status": st.column_config.TextColumn("Status", help="Upload Ingestion status"),
+            "Error / Details": st.column_config.TextColumn("Error / Details", width="medium")
+        },
+        hide_index=True
+    )
+else:
+    st.caption("No ingestion history logs recorded yet.")
 
 
 # ── Danger Zone ──────────────────────────────────────────────────────────────

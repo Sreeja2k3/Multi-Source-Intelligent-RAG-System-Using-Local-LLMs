@@ -1,6 +1,7 @@
 # ui/shared.py — Shared utilities for Loca multi-page app
 
 import json
+import os
 import time
 import uuid
 from datetime import datetime
@@ -10,7 +11,8 @@ import requests
 import streamlit as st
 
 # ── Config ───────────────────────────────────────────────────────────────────
-API_URL = "http://localhost:8000"
+API_URL = os.environ.get("BACKEND_API_URL", "http://localhost:8000")
+BROWSER_API_URL = os.environ.get("BROWSER_API_URL", "http://localhost:8000")
 HISTORY_FILE = Path(__file__).parent / "chat_history.json"
 APP_NAME = "Loca"
 APP_EMOJI = "\U0001f999"
@@ -40,20 +42,74 @@ footer {visibility: hidden;}
 
 /* ── Sidebar ───────────────────────────────────────────── */
 section[data-testid="stSidebar"] {
-    background-color: #0f1117;
-    border-right: 1px solid #1e1e2e;
+    background-color: #0b0f19;
+    border-right: 1px solid #1e293b;
 }
 
 section[data-testid="stSidebar"] .block-container {
     padding-top: 0.5rem;
 }
 
+/* Sidebar navigation links visibility fix */
+section[data-testid="stSidebar"] a,
+section[data-testid="stSidebar"] a span,
+section[data-testid="stSidebar"] button p,
+section[data-testid="stSidebar"] li span,
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] span,
+section[data-testid="stSidebar"] [data-testid="stNavigation"] span {
+    color: #cbd5e1 !important;
+    font-weight: 600 !important;
+    font-size: 0.92rem !important;
+    transition: all 0.2s ease;
+}
+
+/* Sidebar link hover states */
+section[data-testid="stSidebar"] a:hover,
+section[data-testid="stSidebar"] a:hover span,
+section[data-testid="stSidebar"] li:hover span {
+    color: #ffffff !important;
+    background-color: #1e293b !important;
+}
+
+/* Active navigation page highlighting */
+section[data-testid="stSidebar"] a[aria-current="page"],
+section[data-testid="stSidebar"] a[data-active="true"] {
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
+    color: #ffffff !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(29, 78, 216, 0.3) !important;
+}
+
+section[data-testid="stSidebar"] a[aria-current="page"] span,
+section[data-testid="stSidebar"] a[data-active="true"] span {
+    color: #ffffff !important;
+}
+
 section[data-testid="stSidebar"] .stTextInput input {
-    background-color: #1a1a2e !important;
-    border: 1px solid #2a2a4a !important;
+    background-color: #111827 !important;
+    border: 1px solid #1e293b !important;
     border-radius: 8px;
     font-size: 0.8rem;
     padding: 0.4rem 0.7rem !important;
+}
+
+/* Primary Purple-Blue button ("New Chat") gradient styling */
+section[data-testid="stSidebar"] button[kind="primary"] {
+    background: linear-gradient(135deg, #8b5cf6, #3b82f6) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 8px;
+    font-weight: 600 !important;
+    box-shadow: 0 4px 10px rgba(139, 92, 246, 0.2) !important;
+    transition: all 0.2s ease !important;
+    font-size: 0.82rem;
+    padding: 0.35rem 0.6rem !important;
+}
+
+section[data-testid="stSidebar"] button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #7c3aed, #2563eb) !important;
+    box-shadow: 0 6px 14px rgba(139, 92, 246, 0.35) !important;
+    transform: translateY(-1px);
 }
 
 section[data-testid="stSidebar"] .stButton > button {
@@ -510,12 +566,14 @@ def get_sources():
     except Exception:
         return []
 
-def query_api(question, chat_history=None, source_filter=None):
+def query_api(question, chat_history=None, source_filter=None, conversation_id=None):
     payload = {"question": question}
     if chat_history:
         payload["chat_history"] = chat_history
     if source_filter and source_filter != "All Sources":
         payload["source_filter"] = source_filter
+    if conversation_id:
+        payload["conversation_id"] = conversation_id
     r = requests.post(f"{API_URL}/query", json=payload, timeout=120)
     r.raise_for_status()
     return r.json()
@@ -545,24 +603,64 @@ def clear_index_api():
     r.raise_for_status()
     return r.json()
 
+def set_feedback_api(message_id: int, feedback: Optional[str]):
+    try:
+        r = requests.post(f"{API_URL}/messages/{message_id}/feedback", json={"feedback": feedback}, timeout=3)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+def get_ingestion_logs_api():
+    try:
+        r = requests.get(f"{API_URL}/ingestion/logs", timeout=3)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return []
+
+def get_db_stats_api():
+    try:
+        r = requests.get(f"{API_URL}/db/stats", timeout=3)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return {
+        "conversations_count": 0,
+        "messages_count": 0,
+        "upvotes": 0,
+        "downvotes": 0,
+        "success_files": 0,
+        "failed_files": 0
+    }
+
 
 # ── Chat History Persistence ─────────────────────────────────────────────────
 
 def load_history():
-    if HISTORY_FILE.exists():
-        try:
-            data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-            return data.get("conversations", {}), data.get("order", [])
-        except Exception:
-            pass
+    """Load conversation index lists from the backend relational database."""
+    try:
+        r = requests.get(f"{API_URL}/conversations", timeout=2)
+        if r.status_code == 200:
+            conv_list = r.json()
+            conversations = {}
+            order = []
+            for c in conv_list:
+                conversations[c["id"]] = {
+                    "title": c["title"],
+                    "messages": [],  # Messages loaded dynamically
+                    "created": c["created_at"],
+                }
+                order.append(c["id"])
+            return conversations, order
+    except Exception:
+        pass
     return {}, []
 
 def save_history():
-    data = {
-        "conversations": st.session_state.conversations,
-        "order": st.session_state.conv_order,
-    }
-    HISTORY_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    """No-op. Messages are automatically persisted in SQLite database via API."""
+    pass
 
 
 # ── Session State Init ───────────────────────────────────────────────────────
@@ -588,18 +686,30 @@ def init_state():
 
 def new_conversation():
     conv_id = str(uuid.uuid4())[:8]
+    title = "New Chat"
+    try:
+        r = requests.post(f"{API_URL}/conversations", json={"id": conv_id, "title": title}, timeout=3)
+        r.raise_for_status()
+    except Exception:
+        pass
+        
     st.session_state.conversations[conv_id] = {
-        "title": "New Chat",
+        "title": title,
         "messages": [],
         "created": datetime.now().isoformat(),
     }
     st.session_state.conv_order.insert(0, conv_id)
     st.session_state.current_conv = conv_id
     st.session_state.editing_idx = None
-    save_history()
     return conv_id
 
 def delete_conversation(conv_id):
+    try:
+        r = requests.delete(f"{API_URL}/conversations/{conv_id}", timeout=3)
+        r.raise_for_status()
+    except Exception:
+        pass
+
     if conv_id in st.session_state.conversations:
         del st.session_state.conversations[conv_id]
     if conv_id in st.session_state.conv_order:
@@ -608,12 +718,21 @@ def delete_conversation(conv_id):
         st.session_state.current_conv = (
             st.session_state.conv_order[0] if st.session_state.conv_order else None
         )
-    save_history()
 
 def get_current_messages():
     cid = st.session_state.current_conv
-    if cid and cid in st.session_state.conversations:
-        return st.session_state.conversations[cid]["messages"]
+    if not cid:
+        return []
+    if cid in st.session_state.conversations:
+        try:
+            r = requests.get(f"{API_URL}/conversations/{cid}/messages", timeout=3)
+            if r.status_code == 200:
+                msgs = r.json()
+                st.session_state.conversations[cid]["messages"] = msgs
+                return msgs
+        except Exception:
+            pass
+        return st.session_state.conversations[cid].get("messages", [])
     return []
 
 def add_message(role, content, sources=None):
@@ -624,6 +743,8 @@ def add_message(role, content, sources=None):
     if sources:
         msg["sources"] = sources
     st.session_state.conversations[cid]["messages"].append(msg)
+    
+    # Update local sidebar title preview immediately
     msgs = st.session_state.conversations[cid]["messages"]
     user_msgs = [m for m in msgs if m["role"] == "user"]
     if len(user_msgs) == 1:
@@ -631,7 +752,6 @@ def add_message(role, content, sources=None):
         st.session_state.conversations[cid]["title"] = (
             title[:40] + "..." if len(title) > 40 else title
         )
-    save_history()
 
 
 # ── UI Components ────────────────────────────────────────────────────────────

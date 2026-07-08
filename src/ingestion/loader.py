@@ -159,9 +159,8 @@ class MultiSourceLoader:
         else:
             raise ValueError(f"Cannot extract video ID from: {video_url}")
 
-        ytt_api = YouTubeTranscriptApi()
-        transcript = ytt_api.fetch(video_id)
-        full_text = " ".join([snippet.text for snippet in transcript.snippets])
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        full_text = " ".join([entry["text"] for entry in transcript_list])
 
         doc = Document(
             page_content=full_text,

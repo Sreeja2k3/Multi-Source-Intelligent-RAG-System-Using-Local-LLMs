@@ -26,6 +26,11 @@ Rules:
 - Be concise. Get to the point. No filler phrases.
 - If the context contains specific names, numbers, or facts, use them precisely."""
 
+NO_CONTEXT_PROMPT = """You are Loca, a helpful and friendly private AI assistant. 
+The user has not indexed or uploaded any documents to their knowledge base yet, so you do not have specific document context.
+Answer their greeting or question generally using your own knowledge. 
+Remind them gently that if they want to query specific documents (PDF, DOCX, TXT, CSV, JSON, Web URLs, or YouTube videos), they can upload them in the "Knowledge Base" tab."""
+
 
 def format_context(docs: List[Document]) -> str:
     """Format retrieved docs into a context string for the prompt."""
@@ -39,37 +44,61 @@ class RAGChain:
 
     def __init__(self, vector_store_manager: VectorStoreManager):
         self.vs = vector_store_manager
-        self.llm = ChatOllama(
-            model=settings.LLM_MODEL,
-            base_url=settings.OLLAMA_BASE_URL,
-            temperature=settings.LLM_TEMPERATURE,
-            num_predict=settings.LLM_MAX_TOKENS,
-        )
+        self.model_name = settings.LLM_MODEL
+        
+        if settings.LLM_PROVIDER == "openai":
+            from langchain_openai import ChatOpenAI
+            logger.info(f"Using Cloud OpenAI LLM: {settings.LLM_MODEL}")
+            self.llm = ChatOpenAI(
+                model=settings.LLM_MODEL,
+                api_key=settings.OPENAI_API_KEY,
+                temperature=settings.LLM_TEMPERATURE,
+                max_tokens=settings.LLM_MAX_TOKENS,
+            )
+        elif settings.LLM_PROVIDER == "groq":
+            from langchain_groq import ChatGroq
+            logger.info(f"Using Cloud Groq LLM: {settings.LLM_MODEL}")
+            self.llm = ChatGroq(
+                model=settings.LLM_MODEL,
+                api_key=settings.GROQ_API_KEY,
+                temperature=settings.LLM_TEMPERATURE,
+                max_tokens=settings.LLM_MAX_TOKENS,
+            )
+        else:
+            logger.info(f"Using Local Ollama LLM: {settings.LLM_MODEL}")
+            self.llm = ChatOllama(
+                model=settings.LLM_MODEL,
+                base_url=settings.OLLAMA_BASE_URL,
+                temperature=settings.LLM_TEMPERATURE,
+                num_predict=settings.LLM_MAX_TOKENS,
+            )
 
     def query(self, question: str, chat_history: Optional[List[dict]] = None) -> dict:
         # Step 1: Retrieve relevant chunks
-        retriever = self.vs.get_retriever()
-        docs = retriever.invoke(question)
-        logger.info(f"Retrieved {len(docs)} chunks for query: {question}")
-
-        if not docs:
-            return {
-                "answer": "No relevant documents found. Please index some documents first.",
-                "sources": [],
-                "num_sources": 0,
-            }
+        try:
+            retriever = self.vs.get_retriever()
+            docs = retriever.invoke(question)
+            logger.info(f"Retrieved {len(docs)} chunks for query: {question}")
+        except Exception as e:
+            logger.warning(f"Retrieval skipped or failed (likely empty vector database): {e}")
+            docs = []
 
         # Step 2: Re-rank chunks using cross-encoder for better relevance
-        if settings.USE_RERANKER:
+        if docs and settings.USE_RERANKER:
             docs = self.vs.rerank(question, docs, top_k=settings.RETRIEVAL_TOP_K)
             logger.info(f"Re-ranked to {len(docs)} chunks")
 
-        # Step 3: Format context from retrieved docs
-        context = format_context(docs)
-
-        # Step 4: Build prompt with conversation history
-        user_message = f"Context:\n{context}\n\nQuestion: {question}"
-        messages = [SystemMessage(content=SYSTEM_PROMPT)]
+        # Step 3: Call LLM with or without context
+        messages = []
+        if docs:
+            # Build prompt with retrieved context
+            context = format_context(docs)
+            user_message = f"Context:\n{context}\n\nQuestion: {question}"
+            messages.append(SystemMessage(content=SYSTEM_PROMPT))
+        else:
+            # Build general chatbot fallback prompt
+            user_message = question
+            messages.append(SystemMessage(content=NO_CONTEXT_PROMPT))
 
         # Add conversation history if available
         if chat_history:
@@ -81,7 +110,7 @@ class RAGChain:
 
         messages.append(HumanMessage(content=user_message))
 
-        # Step 5: Call local LLM
+        # Step 4: Call LLM
         response = self.llm.invoke(messages)
         answer = response.content
 

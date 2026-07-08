@@ -11,12 +11,19 @@ from src.config import settings
 class VectorStoreManager:
 
     def __init__(self):
-        logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=settings.EMBEDDING_MODEL,
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True},
-        )
+        if settings.EMBEDDING_PROVIDER == "openai":
+            from langchain_openai import OpenAIEmbeddings
+            logger.info("Using cloud OpenAIEmbeddings...")
+            self.embeddings = OpenAIEmbeddings(
+                api_key=settings.OPENAI_API_KEY,
+            )
+        else:
+            logger.info(f"Loading local embedding model: {settings.EMBEDDING_MODEL}")
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name=settings.EMBEDDING_MODEL,
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True},
+            )
         self.vector_store: Optional[Chroma] = None
         self._reranker = None
 

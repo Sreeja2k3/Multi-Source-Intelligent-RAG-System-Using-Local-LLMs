@@ -14,7 +14,7 @@ from shared import (
     new_conversation, delete_conversation,
     query_api, get_sources, get_stats,
     show_loader, stream_response, page_loader, quick_loader, brand_bar,
-    APP_NAME, APP_EMOJI,
+    APP_NAME, APP_EMOJI, BROWSER_API_URL,
 )
 
 apply_theme()
@@ -426,6 +426,8 @@ if st.session_state.editing_idx is not None and messages:
 
 elif messages:
     # Render all messages as custom HTML
+    import html as html_lib
+    
     for idx, msg in enumerate(messages):
         if msg["role"] == "user":
             st.markdown(f'<div class="msg-user"><div class="bubble">{msg["content"]}</div></div>', unsafe_allow_html=True)
@@ -449,24 +451,33 @@ elif messages:
                     src_line = f'<div class="sources">\u2022 {" \u2022 ".join(src_names)}</div>'
 
             st.markdown(f'<div class="msg-bot"><div class="text">{msg["content"]}</div>{src_line}</div>', unsafe_allow_html=True)
-            # Copy to clipboard using JS
-            import html as html_lib
+            
+            # Visual ratings/feedback and copy controls
+            feedback = msg.get("feedback")
+            up_color = "#4ade80" if feedback == "up" else "#666"
+            down_color = "#f87171" if feedback == "down" else "#666"
+            msg_id = msg.get("id")
             escaped = html_lib.escape(msg["content"]).replace("\n", "\\n").replace("'", "\\'")
-            copy_id = f"copy_{idx}"
-            st.markdown(f"""
-<button onclick="navigator.clipboard.writeText('{escaped}').then(()=>{{this.innerText='\u2713 Copied!';setTimeout(()=>this.innerText='\U0001f4cb',1500)}})" style="background:transparent;border:1px solid transparent;color:#666;font-size:0.78rem;padding:0.15rem 0.4rem;cursor:pointer;border-radius:6px;transition:all 0.15s;" onmouseover="this.style.borderColor='#444';this.style.color='#aaa'" onmouseout="this.style.borderColor='transparent';this.style.color='#666'">\U0001f4cb</button>
-            """, unsafe_allow_html=True)
+            
+            if msg_id:
+                st.markdown(f"""
+                <div style="display:flex; gap:0.4rem; align-items:center; margin-top:0.2rem;">
+                    <button onclick="navigator.clipboard.writeText('{escaped}').then(()=>{{this.innerText='\u2713 Copied!';setTimeout(()=>this.innerText='\U0001f4cb Copy',1500)}})" style="background:transparent;border:1px solid transparent;color:#666;font-size:0.75rem;padding:0.15rem 0.4rem;cursor:pointer;border-radius:6px;transition:all 0.15s;" onmouseover="this.style.borderColor='#444';this.style.color='#aaa'" onmouseout="this.style.borderColor='transparent';this.style.color='#666'">\U0001f4cb Copy</button>
+                    <button onclick="fetch('{BROWSER_API_URL}/messages/{msg_id}/feedback', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{feedback:'up'}})}}).then(()=>{{this.style.color='#4ade80'; this.nextElementSibling.style.color='#666'}})" style="background:transparent;border:1px solid transparent;color:{up_color};font-size:0.75rem;padding:0.15rem 0.4rem;cursor:pointer;border-radius:6px;transition:all 0.15s;" onmouseover="this.style.borderColor='#444'" onmouseout="this.style.borderColor='transparent'">👍</button>
+                    <button onclick="fetch('{BROWSER_API_URL}/messages/{msg_id}/feedback', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{feedback:'down'}})}}).then(()=>{{this.style.color='#f87171'; this.previousElementSibling.style.color='#666'}})" style="background:transparent;border:1px solid transparent;color:{down_color};font-size:0.75rem;padding:0.15rem 0.4rem;cursor:pointer;border-radius:6px;transition:all 0.15s;" onmouseover="this.style.borderColor='#444'" onmouseout="this.style.borderColor='transparent'">👎</button>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <button onclick="navigator.clipboard.writeText('{escaped}').then(()=>{{this.innerText='\u2713 Copied!';setTimeout(()=>this.innerText='\U0001f4cb',1500)}})" style="background:transparent;border:1px solid transparent;color:#666;font-size:0.75rem;padding:0.15rem 0.4rem;cursor:pointer;border-radius:6px;transition:all 0.15s;" onmouseover="this.style.borderColor='#444';this.style.color='#aaa'" onmouseout="this.style.borderColor='transparent';this.style.color='#666'">\U0001f4cb</button>
+                """, unsafe_allow_html=True)
 
 
 # ── Chat Input + Response Generation ─────────────────────────────────────────
 
 def generate_response(question_text, history_msgs):
     """Show thinking spinner, call API, stream answer."""
-    if stats["total_chunks"] == 0:
-        with st.chat_message("assistant", avatar=APP_EMOJI):
-            st.info("\U0001f4ed No documents indexed yet. Go to **Knowledge Base** to add some sources first.")
-            add_message("assistant", "No documents indexed yet. Please add sources in the Knowledge Base page first.")
-        return
+
 
     chat_history = []
     for m in history_msgs:
@@ -481,6 +492,7 @@ def generate_response(question_text, history_msgs):
             question_text,
             chat_history=chat_history if chat_history else None,
             source_filter=selected_source,
+            conversation_id=st.session_state.current_conv,
         )
     except requests.exceptions.Timeout:
         _thinking.empty()
@@ -497,7 +509,8 @@ def generate_response(question_text, history_msgs):
         answer = result["answer"]
         st.write_stream(stream_response(answer))
 
-    add_message("assistant", answer, sources=result.get("sources", []))
+    # Re-retrieve fresh message list from DB in next rerun to load message IDs
+    st.rerun()
 
 
 # Handle pending response from previous rerun (last msg is user with no reply)

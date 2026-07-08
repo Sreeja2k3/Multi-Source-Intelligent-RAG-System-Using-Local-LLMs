@@ -1,9 +1,16 @@
 # src/config.py
 from pydantic_settings import BaseSettings  # requires: pip install pydantic-settings
-from typing import Literal
+from typing import Literal, Optional
 
 
 class Settings(BaseSettings):
+    # Pluggable Providers
+    LLM_PROVIDER: Literal["ollama", "openai", "groq"] = "ollama"
+    EMBEDDING_PROVIDER: Literal["local", "openai"] = "local"
+    OPENAI_API_KEY: Optional[str] = None
+    GROQ_API_KEY: Optional[str] = None
+    DB_PATH: str = "./data/rag_system.db"
+
     # LLM — runs locally via Ollama (ollama.com)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     LLM_MODEL: str = "llama3.2"
