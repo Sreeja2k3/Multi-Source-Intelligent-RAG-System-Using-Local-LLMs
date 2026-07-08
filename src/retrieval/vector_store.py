@@ -7,6 +7,37 @@ from langchain_chroma import Chroma
 from src.config import settings
 
 
+from langchain_core.embeddings import Embeddings
+import requests
+
+class GroqCloudEmbeddings(Embeddings):
+    def __init__(self, api_key: str, model: str = "nomic-embed-text-v1.5"):
+        self.api_key = api_key
+        self.model = model
+        self.url = "https://api.groq.com/openai/v1/embeddings"
+
+    def _embed(self, texts: List[str]) -> List[List[float]]:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "input": texts,
+            "model": self.model
+        }
+        res = requests.post(self.url, json=payload, headers=headers)
+        if res.status_code != 200:
+            raise RuntimeError(f"Groq embedding failed: {res.text}")
+        data = res.json()
+        return [item["embedding"] for item in data["data"]]
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self._embed(texts)
+
+    def embed_query(self, text: str) -> List[float]:
+        return self._embed([text])[0]
+
+
 class VectorStoreManager:
 
     def __init__(self):
@@ -17,11 +48,9 @@ class VectorStoreManager:
                 api_key=settings.OPENAI_API_KEY,
             )
         elif settings.EMBEDDING_PROVIDER == "groq":
-            from langchain_openai import OpenAIEmbeddings
-            logger.info("Using cloud Groq (Nomic) Embeddings...")
-            self.embeddings = OpenAIEmbeddings(
-                openai_api_base="https://api.groq.com/openai/v1",
-                openai_api_key=settings.GROQ_API_KEY,
+            logger.info("Using custom Groq (Nomic) Embeddings client...")
+            self.embeddings = GroqCloudEmbeddings(
+                api_key=settings.GROQ_API_KEY,
                 model="nomic-embed-text-v1.5",
             )
         else:
