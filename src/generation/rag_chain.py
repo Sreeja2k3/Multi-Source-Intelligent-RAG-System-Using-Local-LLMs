@@ -70,9 +70,9 @@ class RAGChain:
             provider = (settings.LLM_PROVIDER or "ollama").lower().strip()
 
         if provider == "groq" and groq_key:
-            model = settings.LLM_MODEL or "llama-3.1-8b-instant"
-            if "gpt" in model.lower() or not model:
-                model = "llama-3.1-8b-instant"
+            model = settings.LLM_MODEL or "llama-3.3-70b-versatile"
+            if "gpt" in model.lower() or not model or model == "llama3.2":
+                model = "llama-3.3-70b-versatile"
             logger.info(f"Using Cloud Groq LLM: {model}")
             from langchain_groq import ChatGroq
             client = ChatGroq(
@@ -107,16 +107,31 @@ class RAGChain:
             return client, model, "ollama", None, None
 
     def _invoke_llm_with_fallback(self, messages) -> str:
-        """Invokes LLM with automatic model fallback in case of 404 or transient errors."""
+        """Invokes LLM with automatic model fallback and dynamic key re-resolution."""
+        # Check if new keys have been added to environment since startup
+        curr_groq = os.environ.get("GROQ_API_KEY") or getattr(settings, "GROQ_API_KEY", None)
+        curr_openai = os.environ.get("OPENAI_API_KEY") or getattr(settings, "OPENAI_API_KEY", None)
+        if (curr_groq and not self.groq_key) or (curr_openai and not self.openai_key):
+            logger.info("Detected newly configured API key in environment, re-initializing LLM client...")
+            self.llm, self.model_name, self.provider, self.groq_key, self.openai_key = self._resolve_llm_client()
+
         try:
             resp = self.llm.invoke(messages)
             return resp.content
         except Exception as e:
             err_str = str(e).lower()
-            logger.warning(f"Primary LLM invocation failed: {e}")
+            logger.warning(f"Primary LLM invocation ({self.model_name}) failed: {e}")
 
-            if self.groq_key:
-                fallback_models = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"]
+            groq_k = self.groq_key or curr_groq
+            if groq_k:
+                fallback_models = [
+                    "llama-3.3-70b-versatile",
+                    "llama3-70b-8192",
+                    "llama3-8b-8192",
+                    "llama-3.1-8b-instant",
+                    "mixtral-8x7b-32768",
+                    "gemma2-9b-it",
+                ]
                 for fb in fallback_models:
                     if fb == self.model_name:
                         continue
@@ -125,20 +140,22 @@ class RAGChain:
                         from langchain_groq import ChatGroq
                         fallback_llm = ChatGroq(
                             model=fb,
-                            api_key=self.groq_key,
+                            api_key=groq_k,
                             temperature=settings.LLM_TEMPERATURE,
                             max_tokens=settings.LLM_MAX_TOKENS,
                         )
                         resp = fallback_llm.invoke(messages)
                         self.llm = fallback_llm
                         self.model_name = fb
+                        self.groq_key = groq_k
                         logger.success(f"Self-healing fallback succeeded with {fb}")
                         return resp.content
                     except Exception as fb_err:
                         logger.warning(f"Fallback model {fb} failed: {fb_err}")
                         continue
 
-            if self.openai_key:
+            openai_k = self.openai_key or curr_openai
+            if openai_k:
                 fallback_models = ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"]
                 for fb in fallback_models:
                     if fb == self.model_name:
@@ -148,13 +165,14 @@ class RAGChain:
                         from langchain_openai import ChatOpenAI
                         fallback_llm = ChatOpenAI(
                             model=fb,
-                            api_key=self.openai_key,
+                            api_key=openai_k,
                             temperature=settings.LLM_TEMPERATURE,
                             max_tokens=settings.LLM_MAX_TOKENS,
                         )
                         resp = fallback_llm.invoke(messages)
                         self.llm = fallback_llm
                         self.model_name = fb
+                        self.openai_key = openai_k
                         logger.success(f"Self-healing OpenAI fallback succeeded with {fb}")
                         return resp.content
                     except Exception as fb_err:
@@ -163,13 +181,12 @@ class RAGChain:
 
             if "connection refused" in err_str or "11434" in err_str or "failed to connect" in err_str:
                 return (
-                    "Hello! I am Loca. The backend is currently running in cloud mode, but Ollama is not accessible on localhost. "
-                    "Please provide a GROQ_API_KEY (from console.groq.com) or OPENAI_API_KEY in the backend environment variables to enable cloud generation."
+                    "Hello! I am Loca. The backend is running in cloud mode, but Ollama is not accessible on localhost. "
+                    "Please set GROQ_API_KEY in Render's Environment settings to enable free cloud generation."
                 )
 
-            # Return clear message if API key issue
-            if "invalid_api_key" in err_str or "incorrect api key" in err_str or "authentication" in err_str or "401" in err_str:
-                return "The configured API key appears to be invalid or expired. Please check your GROQ_API_KEY or OPENAI_API_KEY in Render."
+            if "invalid_api_key" in err_str or "incorrect api key" in err_str or "authentication" in err_str or "401" in err_str or "403" in err_str:
+                return "The configured API key was rejected by the provider. Please verify your GROQ_API_KEY in Render."
 
             return f"I received your question, but encountered an API response error from the provider ({e}). Please verify that your API key is active."
 
