@@ -235,21 +235,29 @@ def query(request: QueryRequest):
         result = rag.query(request.question, chat_history=history)
     except Exception as e:
         logger.error(f"Failed to generate RAG response: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Graceful fallback response instead of breaking the entire UI
+        result = {
+            "answer": f"I encountered an issue processing your request: {e}. Please check that your LLM API key (e.g. GROQ_API_KEY) is configured properly.",
+            "sources": [],
+            "num_sources": 0
+        }
     elapsed = time.time() - start_time
 
     # Save assistant response and sources references to DB
     assistant_msg_id = None
     if request.conversation_id:
-        assistant_msg_id = db.add_message(request.conversation_id, "assistant", result["answer"], elapsed)
-        for doc in result["sources"]:
-            meta = doc.metadata
-            db.add_source(
-                assistant_msg_id,
-                source_type=meta.get("source_type", "unknown"),
-                file_name=meta.get("file_name"),
-                url=meta.get("url")
-            )
+        try:
+            assistant_msg_id = db.add_message(request.conversation_id, "assistant", result["answer"], elapsed)
+            for doc in result["sources"]:
+                meta = doc.metadata
+                db.add_source(
+                    assistant_msg_id,
+                    source_type=meta.get("source_type", "unknown"),
+                    file_name=meta.get("file_name"),
+                    url=meta.get("url")
+                )
+        except Exception as db_err:
+            logger.warning(f"Failed to log message to SQLite DB: {db_err}")
 
     # Format sources list response
     sources = []

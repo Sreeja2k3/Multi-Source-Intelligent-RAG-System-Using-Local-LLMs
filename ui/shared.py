@@ -574,9 +574,29 @@ def query_api(question, chat_history=None, source_filter=None, conversation_id=N
         payload["source_filter"] = source_filter
     if conversation_id:
         payload["conversation_id"] = conversation_id
-    r = requests.post(f"{API_URL}/query", json=payload, timeout=120)
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = requests.post(f"{API_URL}/query", json=payload, timeout=120)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.HTTPError as e:
+        try:
+            err_json = r.json()
+            err_msg = err_json.get("detail", str(e))
+        except Exception:
+            err_msg = str(e)
+        return {
+            "question": question,
+            "answer": f"⚠️ {err_msg}",
+            "sources": [],
+            "num_sources": 0,
+        }
+    except Exception as e:
+        return {
+            "question": question,
+            "answer": f"⚠️ Backend server is currently waking up or unreachable ({e}). Please wait a few seconds and try again.",
+            "sources": [],
+            "num_sources": 0,
+        }
 
 def ingest_file_api(file_bytes, filename):
     r = requests.post(f"{API_URL}/ingest/file", files={"file": (filename, file_bytes)}, timeout=60)

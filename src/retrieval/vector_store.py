@@ -96,18 +96,22 @@ class VectorStoreManager:
         if not docs:
             return docs
 
-        if self._reranker is None:
-            from sentence_transformers import CrossEncoder
-            logger.info(f"Loading re-ranker: {settings.RERANKER_MODEL}")
-            self._reranker = CrossEncoder(settings.RERANKER_MODEL)
+        try:
+            if self._reranker is None:
+                from sentence_transformers import CrossEncoder
+                logger.info(f"Loading re-ranker: {settings.RERANKER_MODEL}")
+                self._reranker = CrossEncoder(settings.RERANKER_MODEL)
 
-        pairs = [[query, doc.page_content] for doc in docs]
-        scores = self._reranker.predict(pairs)
+            pairs = [[query, doc.page_content] for doc in docs]
+            scores = self._reranker.predict(pairs)
 
-        scored_docs = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
-        reranked = [doc for doc, score in scored_docs[:top_k]]
-        logger.info(f"Re-ranked: top score={scored_docs[0][1]:.3f}, bottom={scored_docs[-1][1]:.3f}")
-        return reranked
+            scored_docs = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
+            reranked = [doc for doc, score in scored_docs[:top_k]]
+            logger.info(f"Re-ranked: top score={scored_docs[0][1]:.3f}, bottom={scored_docs[-1][1]:.3f}")
+            return reranked
+        except Exception as e:
+            logger.warning(f"Re-ranker error ({e}), returning raw retrieved documents without re-ranking.")
+            return docs[:top_k]
 
     def get_retriever(self, filter_dict: dict = None):
         if not self.vector_store:
