@@ -37,68 +37,74 @@ class RAGChain:
 
     def __init__(self, vector_store_manager: VectorStoreManager):
         self.vs = vector_store_manager
-        self.llm, self.model_name, self.provider = self._resolve_llm_client()
+        self.llm, self.model_name, self.provider, self.groq_key, self.openai_key = self._resolve_llm_client()
 
     def _resolve_llm_client(self):
         """Auto-detects keys, fixes provider mismatches, and instantiates the proper LLM."""
-        groq_key = settings.GROQ_API_KEY or os.environ.get("GROQ_API_KEY")
-        openai_key = settings.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")
+        raw_groq = os.environ.get("GROQ_API_KEY") or getattr(settings, "GROQ_API_KEY", None) or os.environ.get("GROQ_KEY") or os.environ.get("GROQ_API")
+        raw_openai = os.environ.get("OPENAI_API_KEY") or getattr(settings, "OPENAI_API_KEY", None) or os.environ.get("OPENAI_KEY") or os.environ.get("OPENAI_API")
 
-        # Auto-fix swapped keys
-        if openai_key and openai_key.startswith("gsk_"):
-            groq_key = openai_key
-            openai_key = None
-        if groq_key and groq_key.startswith("sk-"):
-            openai_key = groq_key
-            groq_key = None
+        groq_key = None
+        openai_key = None
 
-        provider = (settings.LLM_PROVIDER or "").lower().strip()
-        model = settings.LLM_MODEL or ""
+        for k in [raw_groq, raw_openai]:
+            if k and isinstance(k, str) and k.strip():
+                k_clean = k.strip()
+                if k_clean.startswith("gsk_"):
+                    groq_key = k_clean
+                elif k_clean.startswith("sk-"):
+                    openai_key = k_clean
 
-        # Auto-resolve provider based on available keys & model name
-        if groq_key and not openai_key:
+        if not groq_key and not openai_key:
+            if raw_groq and str(raw_groq).strip():
+                groq_key = str(raw_groq).strip()
+            elif raw_openai and str(raw_openai).strip():
+                openai_key = str(raw_openai).strip()
+
+        # Route strictly based on identified key
+        if groq_key:
             provider = "groq"
-        elif openai_key and not groq_key and provider != "ollama":
+        elif openai_key:
             provider = "openai"
-        elif not groq_key and not openai_key and provider in ["groq", "openai"]:
-            provider = "ollama"
+        else:
+            provider = (settings.LLM_PROVIDER or "ollama").lower().strip()
 
-        if provider == "groq" or (groq_key and "llama" in model.lower()):
-            from langchain_groq import ChatGroq
-            # Fallback to standard Groq model if model is OpenAI-like or invalid
+        if provider == "groq" and groq_key:
+            model = settings.LLM_MODEL or "llama-3.1-8b-instant"
             if "gpt" in model.lower() or not model:
                 model = "llama-3.1-8b-instant"
             logger.info(f"Using Cloud Groq LLM: {model}")
+            from langchain_groq import ChatGroq
             client = ChatGroq(
                 model=model,
                 api_key=groq_key,
                 temperature=settings.LLM_TEMPERATURE,
                 max_tokens=settings.LLM_MAX_TOKENS,
             )
-            return client, model, "groq"
+            return client, model, "groq", groq_key, None
 
-        elif provider == "openai" or (openai_key and ("gpt" in model.lower() or not groq_key)):
-            from langchain_openai import ChatOpenAI
-            if "llama" in model.lower() or "mixtral" in model.lower() or not model:
-                model = "gpt-4o-mini"
+        elif provider == "openai" and openai_key:
+            model = "gpt-4o-mini"
             logger.info(f"Using Cloud OpenAI LLM: {model}")
+            from langchain_openai import ChatOpenAI
             client = ChatOpenAI(
                 model=model,
                 api_key=openai_key,
                 temperature=settings.LLM_TEMPERATURE,
                 max_tokens=settings.LLM_MAX_TOKENS,
             )
-            return client, model, "openai"
+            return client, model, "openai", None, openai_key
 
         else:
-            logger.info(f"Using Local Ollama LLM: {model or 'llama3.2'}")
+            model = settings.LLM_MODEL or "llama3.2"
+            logger.info(f"Using Local Ollama LLM: {model}")
             client = ChatOllama(
-                model=model or "llama3.2",
+                model=model,
                 base_url=settings.OLLAMA_BASE_URL,
                 temperature=settings.LLM_TEMPERATURE,
                 num_predict=settings.LLM_MAX_TOKENS,
             )
-            return client, model or "llama3.2", "ollama"
+            return client, model, "ollama", None, None
 
     def _invoke_llm_with_fallback(self, messages) -> str:
         """Invokes LLM with automatic model fallback in case of 404 or transient errors."""
@@ -109,8 +115,7 @@ class RAGChain:
             err_str = str(e).lower()
             logger.warning(f"Primary LLM invocation failed: {e}")
 
-            groq_key = settings.GROQ_API_KEY or os.environ.get("GROQ_API_KEY")
-            if groq_key and ("404" in err_str or "model_not_found" in err_str or "does not exist" in err_str or "invalid_request_error" in err_str):
+            if self.groq_key:
                 fallback_models = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"]
                 for fb in fallback_models:
                     if fb == self.model_name:
@@ -120,7 +125,7 @@ class RAGChain:
                         from langchain_groq import ChatGroq
                         fallback_llm = ChatGroq(
                             model=fb,
-                            api_key=groq_key,
+                            api_key=self.groq_key,
                             temperature=settings.LLM_TEMPERATURE,
                             max_tokens=settings.LLM_MAX_TOKENS,
                         )
@@ -133,32 +138,40 @@ class RAGChain:
                         logger.warning(f"Fallback model {fb} failed: {fb_err}")
                         continue
 
-            openai_key = settings.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")
-            if openai_key and ("404" in err_str or "model_not_found" in err_str or "does not exist" in err_str):
-                try:
-                    logger.info("Attempting self-healing fallback to OpenAI model: gpt-4o-mini")
-                    from langchain_openai import ChatOpenAI
-                    fallback_llm = ChatOpenAI(
-                        model="gpt-4o-mini",
-                        api_key=openai_key,
-                        temperature=settings.LLM_TEMPERATURE,
-                        max_tokens=settings.LLM_MAX_TOKENS,
-                    )
-                    resp = fallback_llm.invoke(messages)
-                    self.llm = fallback_llm
-                    self.model_name = "gpt-4o-mini"
-                    return resp.content
-                except Exception as fb_err:
-                    logger.warning(f"OpenAI fallback failed: {fb_err}")
+            if self.openai_key:
+                fallback_models = ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"]
+                for fb in fallback_models:
+                    if fb == self.model_name:
+                        continue
+                    try:
+                        logger.info(f"Attempting self-healing fallback to OpenAI model: {fb}")
+                        from langchain_openai import ChatOpenAI
+                        fallback_llm = ChatOpenAI(
+                            model=fb,
+                            api_key=self.openai_key,
+                            temperature=settings.LLM_TEMPERATURE,
+                            max_tokens=settings.LLM_MAX_TOKENS,
+                        )
+                        resp = fallback_llm.invoke(messages)
+                        self.llm = fallback_llm
+                        self.model_name = fb
+                        logger.success(f"Self-healing OpenAI fallback succeeded with {fb}")
+                        return resp.content
+                    except Exception as fb_err:
+                        logger.warning(f"OpenAI fallback {fb} failed: {fb_err}")
+                        continue
 
             if "connection refused" in err_str or "11434" in err_str or "failed to connect" in err_str:
                 return (
                     "Hello! I am Loca. The backend is currently running in cloud mode, but Ollama is not accessible on localhost. "
-                    "Please provide a GROQ_API_KEY or OPENAI_API_KEY in the backend environment variables to enable cloud generation."
+                    "Please provide a GROQ_API_KEY (from console.groq.com) or OPENAI_API_KEY in the backend environment variables to enable cloud generation."
                 )
 
-            # Re-raise if completely unhandled
-            raise e
+            # Return clear message if API key issue
+            if "invalid_api_key" in err_str or "incorrect api key" in err_str or "authentication" in err_str or "401" in err_str:
+                return "The configured API key appears to be invalid or expired. Please check your GROQ_API_KEY or OPENAI_API_KEY in Render."
+
+            return f"I received your question, but encountered an API response error from the provider ({e}). Please verify that your API key is active."
 
     def query(self, question: str, chat_history: Optional[List[dict]] = None) -> dict:
         # Step 1: Retrieve relevant chunks
