@@ -232,7 +232,7 @@ def query(request: QueryRequest):
     # Execute RAG query and measure response time
     start_time = time.time()
     try:
-        result = rag.query(request.question, chat_history=history)
+        result = rag.query(request.question, chat_history=history, source_filter=request.source_filter)
     except Exception as e:
         logger.error(f"Failed to generate RAG response: {e}")
         # Graceful fallback response instead of breaking the entire UI

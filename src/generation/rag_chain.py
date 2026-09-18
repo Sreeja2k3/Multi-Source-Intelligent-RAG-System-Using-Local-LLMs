@@ -1,4 +1,5 @@
 import os
+import re
 from typing import List, Optional
 from loguru import logger
 from langchain_core.documents import Document
@@ -9,14 +10,18 @@ from src.config import settings
 from src.retrieval.vector_store import VectorStoreManager
 
 
-SYSTEM_PROMPT = """You are Loca, a knowledgeable, smart, and helpful AI assistant. Answer the user's question using the provided context from their indexed documents, web pages, and files.
+SYSTEM_PROMPT = """You are Loca, an intelligent, accurate, and concise private AI assistant.
+Answer the user's question using ONLY the provided context from their indexed documents, files, and links.
 
-Guidelines:
-- Answer directly, clearly, and helpfully.
-- If the user asks about "the url", "the document", "the video", or asks for a summary/overview, provide a clear, comprehensive summary of the provided context.
-- If the question asks for details related to the topic in the context, synthesize the relevant facts, concepts, or explanations that ARE present in the context.
-- Include key facts, code examples, or explanations when present in the context.
-- Only say "I don't have enough information to answer this" if the context is completely unrelated to what the user is asking."""
+Strict Accuracy Rules:
+1. Grounding: Rely strictly on facts directly mentioned in the provided context. Do NOT invent, assume, or extrapolate facts.
+2. Direct Answer: Answer what the user specifically asked.
+   - If the user asks about a specific person, entity, skill, or topic (e.g. "who is [Name]" or "what is [Topic]") and that person/topic is NOT described in the context, clearly state:
+     "I could not find information about [Name/Topic] in the currently indexed documents."
+   - Do NOT substitute or output a summary of an unrelated document or video when asked about something else.
+3. Relevant Summaries: Only provide a summary of a document, video, or URL if the user explicitly asks for a summary or overview.
+4. Source Attribution: When answering from the context, mention the relevant source document name (e.g., [Source: filename]).
+5. Conciseness & Structure: Keep answers direct, well-structured (using bullet points where appropriate), and free of unnecessary fluff."""
 
 NO_CONTEXT_PROMPT = """You are Loca, a helpful and friendly private AI assistant. 
 The user has not indexed or uploaded any documents to their knowledge base yet, so you do not have specific document context.
@@ -31,6 +36,35 @@ def format_context(docs: List[Document]) -> str:
         source = doc.metadata.get("url") or doc.metadata.get("file_name") or doc.metadata.get("title") or "Document"
         parts.append(f"[Source: {source}]\n{doc.page_content}")
     return "\n\n---\n\n".join(parts)
+
+
+def is_referential_followup(question: str) -> bool:
+    """Returns True if the question is an anaphoric follow-up referencing prior context."""
+    q = question.strip().lower()
+    words = set(re.findall(r'\b[a-z0-9_]+\b', q))
+
+    # Standalone entity or direct factual questions should NEVER be treated as follow-up
+    # e.g. "who is Vangara Sreeja", "what is machine learning", "where was ..."
+    if re.match(r'^(who|whom|whose)\s+(is|was|are|were)\b', q):
+        return False
+    if re.match(r'^(what|where|when|why|how)\s+(is|was|are|were)\s+([a-z0-9_-]+\s+){1,}[a-z0-9_-]+', q) and not any(w in words for w in ("it", "this", "that", "these", "those")):
+        return False
+
+    # Check for explicit referential phrases pointing to prior context
+    referential_phrases = [
+        "the url", "the video", "the link", "the document", "the file", "the paper",
+        "tell me more", "explain more", "summarize it", "summarize this", "what about it", "what else",
+        "elaborate", "continue", "give me more"
+    ]
+    if any(p in q for p in referential_phrases):
+        return True
+
+    # Check for referential pronouns
+    referential_pronouns = {"it", "this", "that", "these", "those", "they", "them", "earlier", "above"}
+    if words & referential_pronouns:
+        return True
+
+    return False
 
 
 class RAGChain:
@@ -70,9 +104,10 @@ class RAGChain:
             provider = (settings.LLM_PROVIDER or "ollama").lower().strip()
 
         if provider == "groq" and groq_key:
-            model = settings.LLM_MODEL or "openai/gpt-oss-120b"
-            if model in ("llama3.2", "llama-3.3-70b-versatile", "llama-3.1-8b-instant") or not model:
-                model = "openai/gpt-oss-120b"
+            model = settings.LLM_MODEL
+            # Fast, low-latency 20B model on Groq is default when unconfigured or using local name
+            if not model or model in ("llama3.2", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"):
+                model = "openai/gpt-oss-20b"
             logger.info(f"Using Cloud Groq LLM: {model}")
             from langchain_groq import ChatGroq
             client = ChatGroq(
@@ -125,8 +160,8 @@ class RAGChain:
             groq_k = self.groq_key or curr_groq
             if groq_k:
                 fallback_models = [
-                    "openai/gpt-oss-120b",
                     "openai/gpt-oss-20b",
+                    "openai/gpt-oss-120b",
                     "qwen/qwen3.6-27b",
                     "qwen/qwen3-32b",
                 ]
@@ -189,29 +224,52 @@ class RAGChain:
 
             return f"I received your question, but encountered an API response error from the provider ({e}). Please verify that your API key is active."
 
-    def query(self, question: str, chat_history: Optional[List[dict]] = None) -> dict:
+    def query(
+        self,
+        question: str,
+        chat_history: Optional[List[dict]] = None,
+        source_filter: Optional[str] = None,
+    ) -> dict:
         # Step 1: Retrieve relevant chunks
         try:
             search_query = question.strip()
-            # If the user asks a short follow-up (e.g. "teh url i pasted just now", "tell me more", "summarize it"),
-            # combine with previous user questions so semantic search retrieves the right document chunks.
-            if chat_history and len(question.split()) <= 8:
+            # Only enrich query if the question is an explicit referential/follow-up question
+            # Standalone entity queries (e.g. "who is Vangara Sreeja") must NEVER be polluted with past messages
+            if chat_history and is_referential_followup(question):
                 past_user_msgs = [m["content"] for m in chat_history if m.get("role") == "user" and m.get("content")]
                 if past_user_msgs:
                     search_query = f"{past_user_msgs[-1]} {question}"
 
-            retriever = self.vs.get_retriever()
-            docs = retriever.invoke(search_query)
+            # Apply metadata filter if specific source requested
+            filter_dict = None
+            if source_filter and source_filter != "All Sources":
+                filter_dict = {"file_name": source_filter}
+
+            if filter_dict:
+                retriever = self.vs.get_retriever(filter_dict=filter_dict)
+                docs = retriever.invoke(search_query)
+                # Fallback if document metadata recorded under "url"
+                if not docs and (source_filter.startswith("http://") or source_filter.startswith("https://")):
+                    try:
+                        retriever_url = self.vs.get_retriever(filter_dict={"url": source_filter})
+                        docs = retriever_url.invoke(search_query)
+                    except Exception:
+                        pass
+            else:
+                retriever = self.vs.get_retriever()
+                docs = retriever.invoke(search_query)
+
             # If no docs found with enriched query, try raw question
             if not docs and search_query != question:
-                docs = retriever.invoke(question)
+                retriever_raw = self.vs.get_retriever(filter_dict=filter_dict) if filter_dict else self.vs.get_retriever()
+                docs = retriever_raw.invoke(question)
 
-            logger.info(f"Retrieved {len(docs)} chunks for query: '{search_query}'")
+            logger.info(f"Retrieved {len(docs)} chunks for query: '{search_query}' (source_filter: {source_filter})")
         except Exception as e:
             logger.warning(f"Retrieval skipped or failed (likely empty vector database): {e}")
             docs = []
 
-        # Step 2: Re-rank chunks using cross-encoder for better relevance
+        # Step 2: Re-rank chunks using cross-encoder for better relevance (if enabled)
         if docs and getattr(settings, "USE_RERANKER", False):
             try:
                 docs = self.vs.rerank(question, docs, top_k=settings.RETRIEVAL_TOP_K)

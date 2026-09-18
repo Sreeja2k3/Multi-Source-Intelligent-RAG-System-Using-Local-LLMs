@@ -125,7 +125,7 @@ class MultiSourceLoader:
                 if text and len(text.strip()) > 100:
                     doc = Document(
                         page_content=text,
-                        metadata={"source_type": "web", "url": url},
+                        metadata={"source_type": "web", "url": url, "file_name": url},
                     )
                     logger.success(f"Loaded {len(text)} chars from URL (trafilatura)")
                     return [doc]
@@ -152,7 +152,7 @@ class MultiSourceLoader:
 
         doc = Document(
             page_content=clean_text,
-            metadata={"source_type": "web", "url": url},
+            metadata={"source_type": "web", "url": url, "file_name": url},
         )
         logger.success(f"Loaded {len(clean_text)} chars from URL (BeautifulSoup)")
         return [doc]

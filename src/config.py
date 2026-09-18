@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     COLLECTION_NAME: str = "rag_collection"
 
     # Retrieval
-    RETRIEVAL_TOP_K: int = 5
-    RETRIEVAL_STRATEGY: Literal["mmr", "similarity"] = "mmr"
+    RETRIEVAL_TOP_K: int = 4
+    RETRIEVAL_STRATEGY: Literal["mmr", "similarity"] = "similarity"
 
-    # Re-ranking
-    USE_RERANKER: bool = True
+    # Re-ranking (disabled by default for low latency; enable if cross-encoder CPU/GPU overhead is acceptable)
+    USE_RERANKER: bool = False
     RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
     # Conversation memory
