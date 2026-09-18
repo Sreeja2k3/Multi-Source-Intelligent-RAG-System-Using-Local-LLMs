@@ -2,6 +2,8 @@
 import csv
 import json
 import io
+import re
+import urllib.request
 from pathlib import Path
 from typing import List
 
@@ -13,7 +15,10 @@ from langchain_community.document_loaders import (
     TextLoader,
 )
 
-from youtube_transcript_api import YouTubeTranscriptApi
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+except ImportError:
+    YouTubeTranscriptApi = None
 
 
 class MultiSourceLoader:
@@ -152,21 +157,91 @@ class MultiSourceLoader:
     def load_youtube(self, video_url: str) -> List[Document]:
         logger.info(f"Loading YouTube: {video_url}")
 
+        video_id = None
         if "v=" in video_url:
             video_id = video_url.split("v=")[1].split("&")[0]
         elif "youtu.be/" in video_url:
             video_id = video_url.split("youtu.be/")[1].split("?")[0]
+        elif "embed/" in video_url:
+            video_id = video_url.split("embed/")[1].split("?")[0]
+        elif "shorts/" in video_url:
+            video_id = video_url.split("shorts/")[1].split("?")[0]
+        elif "live/" in video_url:
+            video_id = video_url.split("live/")[1].split("?")[0]
         else:
+            cleaned = video_url.strip()
+            if len(cleaned) == 11 and "/" not in cleaned:
+                video_id = cleaned
+                video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+        if not video_id:
             raise ValueError(f"Cannot extract video ID from: {video_url}")
 
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-        full_text = " ".join([entry["text"] for entry in transcript_list])
+        # Step 1: Fetch title & creator via YouTube oEmbed API (reliable and unblocked)
+        title = f"YouTube Video ({video_id})"
+        author = "YouTube"
+        try:
+            oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+            req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                oembed_data = json.loads(r.read().decode("utf-8"))
+                title = oembed_data.get("title", title)
+                author = oembed_data.get("author_name", author)
+        except Exception as e:
+            logger.warning(f"Could not fetch oEmbed metadata for {video_id}: {e}")
 
+        # Step 2: Attempt to fetch subtitles / transcripts
+        full_text = ""
+        if YouTubeTranscriptApi:
+            try:
+                try:
+                    entries = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US", "en-GB"])
+                    full_text = " ".join([e["text"] for e in entries if e.get("text")])
+                except Exception:
+                    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                    for t in transcript_list:
+                        full_text = " ".join([e["text"] for e in t.fetch() if e.get("text")])
+                        if full_text:
+                            break
+            except Exception as e:
+                logger.warning(f"YouTube transcript API unavailable for {video_id} (likely datacenter IP restriction): {e}")
+
+        # Step 3: Fallback / supplementary extraction from video webpage (description & syllabus)
+        desc_text = ""
+        try:
+            watch_url = f"https://www.youtube.com/watch?v={video_id}"
+            req = urllib.request.Request(watch_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                html = r.read().decode("utf-8", errors="ignore")
+                match = re.search(r'"shortDescription":"(.*?)"', html)
+                if match:
+                    raw_desc = match.group(1)
+                    desc_text = re.sub(r'\\n', '\n', raw_desc)
+                    desc_text = re.sub(r'\\"', '"', desc_text)
+        except Exception as e:
+            logger.warning(f"Could not scrape YouTube page description: {e}")
+
+        # Compose rich document content
+        content_parts = [f"Title: {title}", f"Channel / Creator: {author}", f"URL: {video_url}"]
+        if full_text:
+            content_parts.append(f"\nTranscript:\n{full_text}")
+        elif desc_text:
+            content_parts.append(f"\nVideo Overview & Description:\n{desc_text}")
+        else:
+            content_parts.append(f"\nIndexed YouTube Video: {title} by {author}.")
+
+        content = "\n".join(content_parts)
         doc = Document(
-            page_content=full_text,
-            metadata={"source_type": "youtube", "video_id": video_id, "url": video_url},
+            page_content=content,
+            metadata={
+                "source_type": "youtube",
+                "file_name": video_url,
+                "video_id": video_id,
+                "title": title,
+                "url": video_url,
+            },
         )
-        logger.success(f"Loaded YouTube transcript ({len(full_text)} chars)")
+        logger.success(f"Loaded YouTube video: '{title}' ({len(content)} chars)")
         return [doc]
 
     def load_from_directory(self, directory: str) -> List[Document]:
