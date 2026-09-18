@@ -112,6 +112,9 @@ class MultiSourceLoader:
 
     def load_url(self, url: str) -> List[Document]:
         """Scrapes URL using trafilatura for better text extraction, with fallback to BeautifulSoup."""
+        url = url.strip().rstrip("\\")
+        if not url.startswith("http://") and not url.startswith("https://"):
+            url = f"https://{url}"
         logger.info(f"Loading URL: {url}")
 
         try:

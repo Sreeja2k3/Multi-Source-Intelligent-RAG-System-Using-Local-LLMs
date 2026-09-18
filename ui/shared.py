@@ -599,17 +599,19 @@ def query_api(question, chat_history=None, source_filter=None, conversation_id=N
         }
 
 def ingest_file_api(file_bytes, filename):
-    r = requests.post(f"{API_URL}/ingest/file", files={"file": (filename, file_bytes)}, timeout=60)
+    r = requests.post(f"{API_URL}/ingest/file", files={"file": (filename, file_bytes)}, timeout=120)
     r.raise_for_status()
     return r.json()
 
 def ingest_url_api(url):
-    r = requests.post(f"{API_URL}/ingest/url", json={"url": url}, timeout=30)
+    clean_url = url.strip().rstrip("\\")
+    r = requests.post(f"{API_URL}/ingest/url", json={"url": clean_url}, timeout=120)
     r.raise_for_status()
     return r.json()
 
 def ingest_youtube_api(url):
-    r = requests.post(f"{API_URL}/ingest/youtube", json={"url": url}, timeout=30)
+    clean_url = url.strip().rstrip("\\")
+    r = requests.post(f"{API_URL}/ingest/youtube", json={"url": clean_url}, timeout=120)
     r.raise_for_status()
     return r.json()
 
