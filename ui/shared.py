@@ -598,22 +598,32 @@ def query_api(question, chat_history=None, source_filter=None, conversation_id=N
             "num_sources": 0,
         }
 
+def _post_with_retry(endpoint, **kwargs):
+    """POST request with automatic retry for transient Render 502/503 deployments."""
+    for attempt in range(2):
+        try:
+            r = requests.post(f"{API_URL}{endpoint}", **kwargs)
+            if r.status_code in (502, 503) and attempt == 0:
+                import time
+                time.sleep(3)
+                continue
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.HTTPError as e:
+            if r.status_code in (502, 503):
+                raise RuntimeError("Backend is temporarily waking up or deploying. Please wait 15-30 seconds and try again.")
+            raise e
+
 def ingest_file_api(file_bytes, filename):
-    r = requests.post(f"{API_URL}/ingest/file", files={"file": (filename, file_bytes)}, timeout=120)
-    r.raise_for_status()
-    return r.json()
+    return _post_with_retry("/ingest/file", files={"file": (filename, file_bytes)}, timeout=120)
 
 def ingest_url_api(url):
     clean_url = url.strip().rstrip("\\")
-    r = requests.post(f"{API_URL}/ingest/url", json={"url": clean_url}, timeout=120)
-    r.raise_for_status()
-    return r.json()
+    return _post_with_retry("/ingest/url", json={"url": clean_url}, timeout=120)
 
 def ingest_youtube_api(url):
     clean_url = url.strip().rstrip("\\")
-    r = requests.post(f"{API_URL}/ingest/youtube", json={"url": clean_url}, timeout=120)
-    r.raise_for_status()
-    return r.json()
+    return _post_with_retry("/ingest/youtube", json={"url": clean_url}, timeout=120)
 
 def delete_source_api(source_name):
     r = requests.delete(f"{API_URL}/source", json={"source_name": source_name}, timeout=10)
