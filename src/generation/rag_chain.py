@@ -9,15 +9,14 @@ from src.config import settings
 from src.retrieval.vector_store import VectorStoreManager
 
 
-SYSTEM_PROMPT = """You are a knowledgeable assistant. Answer the user's question using the provided context.
+SYSTEM_PROMPT = """You are Loca, a knowledgeable, smart, and helpful AI assistant. Answer the user's question using the provided context from their indexed documents, web pages, and files.
 
-Rules:
-- Answer directly and naturally, as if you're explaining to a colleague.
-- NEVER say "According to the provided context", "Based on Document 1", or reference document numbers.
-- NEVER mention that you were given context or documents. Just answer the question.
-- If the context doesn't contain the answer, say: "I don't have enough information to answer this."
-- Be concise. Get to the point. No filler phrases.
-- If the context contains specific names, numbers, or facts, use them precisely."""
+Guidelines:
+- Answer directly, clearly, and helpfully.
+- If the user asks about "the url", "the document", "the video", or asks for a summary/overview, provide a clear, comprehensive summary of the provided context.
+- If the question asks for details related to the topic in the context, synthesize the relevant facts, concepts, or explanations that ARE present in the context.
+- Include key facts, code examples, or explanations when present in the context.
+- Only say "I don't have enough information to answer this" if the context is completely unrelated to what the user is asking."""
 
 NO_CONTEXT_PROMPT = """You are Loca, a helpful and friendly private AI assistant. 
 The user has not indexed or uploaded any documents to their knowledge base yet, so you do not have specific document context.
@@ -26,10 +25,11 @@ Remind them gently that if they want to query specific documents (PDF, DOCX, TXT
 
 
 def format_context(docs: List[Document]) -> str:
-    """Format retrieved docs into a context string for the prompt."""
+    """Format retrieved docs into a context string for the prompt with source labels."""
     parts = []
     for doc in docs:
-        parts.append(doc.page_content)
+        source = doc.metadata.get("url") or doc.metadata.get("file_name") or doc.metadata.get("title") or "Document"
+        parts.append(f"[Source: {source}]\n{doc.page_content}")
     return "\n\n---\n\n".join(parts)
 
 
@@ -192,9 +192,21 @@ class RAGChain:
     def query(self, question: str, chat_history: Optional[List[dict]] = None) -> dict:
         # Step 1: Retrieve relevant chunks
         try:
+            search_query = question.strip()
+            # If the user asks a short follow-up (e.g. "teh url i pasted just now", "tell me more", "summarize it"),
+            # combine with previous user questions so semantic search retrieves the right document chunks.
+            if chat_history and len(question.split()) <= 8:
+                past_user_msgs = [m["content"] for m in chat_history if m.get("role") == "user" and m.get("content")]
+                if past_user_msgs:
+                    search_query = f"{past_user_msgs[-1]} {question}"
+
             retriever = self.vs.get_retriever()
-            docs = retriever.invoke(question)
-            logger.info(f"Retrieved {len(docs)} chunks for query: {question}")
+            docs = retriever.invoke(search_query)
+            # If no docs found with enriched query, try raw question
+            if not docs and search_query != question:
+                docs = retriever.invoke(question)
+
+            logger.info(f"Retrieved {len(docs)} chunks for query: '{search_query}'")
         except Exception as e:
             logger.warning(f"Retrieval skipped or failed (likely empty vector database): {e}")
             docs = []
