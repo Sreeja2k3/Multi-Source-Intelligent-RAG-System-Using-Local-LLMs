@@ -69,7 +69,7 @@ class RAGChain:
         else:
             provider = (settings.LLM_PROVIDER or "ollama").lower().strip()
 
-                if provider == "groq" and groq_key:
+        if provider == "groq" and groq_key:
             model = settings.LLM_MODEL or "openai/gpt-oss-120b"
             if model in ("llama3.2", "llama-3.3-70b-versatile", "llama-3.1-8b-instant") or not model:
                 model = "openai/gpt-oss-120b"
@@ -82,7 +82,6 @@ class RAGChain:
                 max_tokens=settings.LLM_MAX_TOKENS,
             )
             return client, model, "groq", groq_key, None
-
 
         elif provider == "openai" and openai_key:
             model = "gpt-4o-mini"
@@ -124,7 +123,6 @@ class RAGChain:
             logger.warning(f"Primary LLM invocation ({self.model_name}) failed: {e}")
 
             groq_k = self.groq_key or curr_groq
-                        groq_k = self.groq_key or curr_groq
             if groq_k:
                 fallback_models = [
                     "openai/gpt-oss-120b",
