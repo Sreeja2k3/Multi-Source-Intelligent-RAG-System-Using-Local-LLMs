@@ -69,10 +69,10 @@ class RAGChain:
         else:
             provider = (settings.LLM_PROVIDER or "ollama").lower().strip()
 
-        if provider == "groq" and groq_key:
-            model = settings.LLM_MODEL or "llama-3.3-70b-versatile"
-            if "gpt" in model.lower() or not model or model == "llama3.2":
-                model = "llama-3.3-70b-versatile"
+                if provider == "groq" and groq_key:
+            model = settings.LLM_MODEL or "openai/gpt-oss-120b"
+            if model in ("llama3.2", "llama-3.3-70b-versatile", "llama-3.1-8b-instant") or not model:
+                model = "openai/gpt-oss-120b"
             logger.info(f"Using Cloud Groq LLM: {model}")
             from langchain_groq import ChatGroq
             client = ChatGroq(
@@ -82,6 +82,7 @@ class RAGChain:
                 max_tokens=settings.LLM_MAX_TOKENS,
             )
             return client, model, "groq", groq_key, None
+
 
         elif provider == "openai" and openai_key:
             model = "gpt-4o-mini"
@@ -123,15 +124,15 @@ class RAGChain:
             logger.warning(f"Primary LLM invocation ({self.model_name}) failed: {e}")
 
             groq_k = self.groq_key or curr_groq
+                        groq_k = self.groq_key or curr_groq
             if groq_k:
                 fallback_models = [
-                    "llama-3.3-70b-versatile",
-                    "llama3-70b-8192",
-                    "llama3-8b-8192",
-                    "llama-3.1-8b-instant",
-                    "mixtral-8x7b-32768",
-                    "gemma2-9b-it",
+                    "openai/gpt-oss-120b",
+                    "openai/gpt-oss-20b",
+                    "qwen/qwen3.6-27b",
+                    "qwen/qwen3-32b",
                 ]
+
                 for fb in fallback_models:
                     if fb == self.model_name:
                         continue
