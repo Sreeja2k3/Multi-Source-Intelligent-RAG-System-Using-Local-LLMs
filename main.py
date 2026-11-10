@@ -8,6 +8,11 @@
 #   python main.py stats
 
 import argparse
+import os
+import sys
+
+# Re-export FastAPI app so `uvicorn main:app` also works seamlessly
+from api import app
 from src.retrieval.vector_store import VectorStoreManager
 from src.ingestion.pipeline import IngestionPipeline
 from src.generation.rag_chain import RAGChain
@@ -63,7 +68,13 @@ def main():
         print(f"Total chunks: {s['total_chunks']}")
 
     else:
-        parser.print_help()
+        # If running on Render or any cloud container with $PORT set, auto-start the full application
+        if "PORT" in os.environ or "RENDER" in os.environ:
+            print("[*] Running in cloud environment ($PORT detected). Starting full RAG application...")
+            from start_render import main as start_service
+            start_service()
+        else:
+            parser.print_help()
 
 
 if __name__ == "__main__":

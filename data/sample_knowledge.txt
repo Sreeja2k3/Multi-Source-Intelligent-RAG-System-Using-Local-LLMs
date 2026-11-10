@@ -1,0 +1,5 @@
+Project Multi-Source Intelligent RAG System is a locally-hosted retrieval-augmented generation system.
+It supports multiple ingestion formats including PDF, DOCX, TXT, CSV, JSON, web URLs, and YouTube transcripts.
+The system uses ChromaDB with ONNX all-MiniLM-L6-v2 embeddings for vector storage and retrieval.
+The generation model runs locally on Ollama using llama3.2, ensuring complete data privacy with no cloud API dependencies.
+The project architecture features a FastAPI backend and a Streamlit user interface.
