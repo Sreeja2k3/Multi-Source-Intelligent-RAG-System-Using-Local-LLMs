@@ -28,6 +28,35 @@ The user has not indexed or uploaded any documents to their knowledge base yet, 
 Answer their greeting or question generally using your own knowledge. 
 Remind them gently that if they want to query specific documents (PDF, DOCX, TXT, CSV, JSON, Web URLs, or YouTube videos), they can upload them in the "Knowledge Base" tab."""
 
+GREETING_PROMPT = """You are Loca, a helpful, polite, and friendly private AI assistant.
+The user is greeting you or saying hello/thanks/asking what you can do.
+Respond with a warm, natural, and concise greeting (1-2 sentences).
+Introduce yourself as Loca, their private, local AI assistant running completely on their machine.
+Let them know they can ask questions about their indexed documents or upload files in the Knowledge Base tab.
+Do NOT say you could not find information, and do NOT cite any document sources."""
+
+
+def is_greeting_or_chitchat(question: str) -> bool:
+    """Returns True if the question is a conversational greeting or polite small talk."""
+    q = question.strip().lower()
+    q_clean = re.sub(r'[^\w\s]', '', q).strip()
+    
+    common_greetings = {
+        "hi", "hello", "hey", "hiya", "howdy", "hola", "greetings",
+        "good morning", "good afternoon", "good evening", "good day",
+        "thanks", "thank you", "thx", "appreciate it", "great", "cool",
+        "who are you", "what is your name", "what can you do", "help", "how are you"
+    }
+    if q_clean in common_greetings:
+        return True
+    
+    words = q_clean.split()
+    if words and words[0] in {"hi", "hello", "hey", "howdy"} and len(words) <= 4:
+        if not any(w in words for w in {"what", "who", "where", "when", "why", "how", "explain", "summarize", "tell", "pdf", "docx"}):
+            return True
+            
+    return False
+
 
 def format_context(docs: List[Document]) -> str:
     """Format retrieved docs into a context string for the prompt with source labels."""
@@ -105,9 +134,9 @@ class RAGChain:
 
         if provider == "groq" and groq_key:
             model = settings.LLM_MODEL
-            # Fast, low-latency 20B model on Groq is default when unconfigured or using local name
-            if not model or model in ("llama3.2", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"):
-                model = "openai/gpt-oss-20b"
+            # If default local model or empty, map to Groq's high-performance Llama 3.3 model
+            if not model or model == "llama3.2":
+                model = "llama-3.3-70b-versatile"
             logger.info(f"Using Cloud Groq LLM: {model}")
             from langchain_groq import ChatGroq
             client = ChatGroq(
@@ -160,10 +189,11 @@ class RAGChain:
             groq_k = self.groq_key or curr_groq
             if groq_k:
                 fallback_models = [
-                    "openai/gpt-oss-20b",
-                    "openai/gpt-oss-120b",
-                    "qwen/qwen3.6-27b",
-                    "qwen/qwen3-32b",
+                    "llama-3.3-70b-versatile",
+                    "llama-3.1-8b-instant",
+                    "llama3-70b-8192",
+                    "mixtral-8x7b-32768",
+                    "gemma2-9b-it",
                 ]
 
                 for fb in fallback_models:
@@ -230,6 +260,20 @@ class RAGChain:
         chat_history: Optional[List[dict]] = None,
         source_filter: Optional[str] = None,
     ) -> dict:
+        # Step 0: Handle conversational greetings and small talk directly
+        if is_greeting_or_chitchat(question):
+            messages = [
+                SystemMessage(content=GREETING_PROMPT),
+                HumanMessage(content=question)
+            ]
+            answer = self._invoke_llm_with_fallback(messages)
+            logger.info("Answered conversational greeting without vector retrieval")
+            return {
+                "answer": answer,
+                "sources": [],
+                "num_sources": 0,
+            }
+
         # Step 1: Retrieve relevant chunks
         try:
             search_query = question.strip()

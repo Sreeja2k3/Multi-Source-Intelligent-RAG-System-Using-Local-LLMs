@@ -1,0 +1,24 @@
+services:
+  # Multi-Source Intelligent RAG Web Service on Render
+  # Runs both FastAPI backend and Streamlit UI together via start_render.py on a single free tier instance
+  - type: web
+    name: multi-source-rag
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python start_render.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LLM_PROVIDER
+        value: groq
+      - key: EMBEDDING_PROVIDER
+        value: local
+      - key: DB_PATH
+        value: ./data/rag_system.db
+      - key: CHROMA_PERSIST_DIR
+        value: ./data/chroma_db
+

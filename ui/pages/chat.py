@@ -291,17 +291,17 @@ with st.sidebar:
 
             display = title if len(title) <= 22 else title[:19] + "..."
 
-            c1, c2 = st.columns([7, 1])
+            c1, c2 = st.columns([6, 1.2], gap="small")
             with c1:
                 if is_active:
-                    st.markdown(f"<div style='padding:0.4rem 0.6rem;background:#1a365d;border-radius:8px;font-size:0.82rem;font-weight:500;color:#93c5fd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>\U0001f7e2 {display}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='height:35px;display:flex;align-items:center;padding:0 10px;background:linear-gradient(135deg, #1e3a8a, #2563eb);border-radius:8px;font-size:0.82rem;font-weight:600;color:#ffffff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>💬 {display}</div>", unsafe_allow_html=True)
                 else:
-                    if st.button(f"\u25CF {display}", key=f"conv_{cid}", use_container_width=True):
+                    if st.button(f"💬 {display}", key=f"conv_{cid}", use_container_width=True):
                         st.session_state.current_conv = cid
                         st.session_state.editing_idx = None
                         st.rerun()
             with c2:
-                if st.button("\U0001f5d1", key=f"del_{cid}", help="Delete"):
+                if st.button("🗑️", key=f"del_{cid}", help="Delete", use_container_width=True):
                     delete_conversation(cid)
                     st.rerun()
 
@@ -353,40 +353,50 @@ st.markdown("""
 .msg-user {
     display: flex;
     justify-content: flex-end;
-    margin-bottom: 0.8rem;
+    margin-bottom: 0.3rem;
 }
 .msg-user .bubble {
-    background: #2a2a3e;
-    padding: 0.8rem 1.1rem;
+    background: linear-gradient(135deg, #1d4ed8, #2563eb);
+    padding: 0.75rem 1.1rem;
     border-radius: 18px 18px 4px 18px;
-    max-width: 70%;
-    font-size: 0.92rem;
-    line-height: 1.6;
-    color: #e0e0e0;
+    max-width: 80%;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
 }
 .msg-bot {
-    margin-bottom: 0.8rem;
-    padding: 0.4rem 0;
+    margin-bottom: 1rem;
+    padding: 0.9rem 1.1rem;
+    background: rgba(30, 41, 59, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    backdrop-filter: blur(8px);
 }
 .msg-bot .text {
-    font-size: 0.92rem;
+    font-size: 0.95rem;
     line-height: 1.7;
-    color: #d0d0d0;
+    color: #f1f5f9;
 }
 .msg-bot .sources {
-    font-size: 0.7rem;
-    color: #555;
-    margin-top: 0.4rem;
+    font-size: 0.75rem;
+    color: #93c5fd;
+    margin-top: 0.6rem;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    display: inline-block;
 }
 .msg-actions {
     display: flex;
     justify-content: flex-end;
     gap: 0.6rem;
     margin-top: 0.2rem;
-    opacity: 0.3;
+    opacity: 0.4;
     font-size: 0.75rem;
 }
-.msg-actions:hover { opacity: 0.7; }
+.msg-actions:hover { opacity: 0.85; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -430,11 +440,11 @@ elif messages:
     
     for idx, msg in enumerate(messages):
         if msg["role"] == "user":
-            st.markdown(f'<div class="msg-user"><div class="bubble">{msg["content"]}</div></div>', unsafe_allow_html=True)
-            # Edit button (Streamlit widget, right-aligned)
-            cols = st.columns([8, 1])
-            with cols[1]:
-                if st.button("\u270f\ufe0f", key=f"e_{idx}", help="Edit"):
+            u_cols = st.columns([12, 1], gap="small")
+            with u_cols[0]:
+                st.markdown(f'<div class="msg-user"><div class="bubble">{msg["content"]}</div></div>', unsafe_allow_html=True)
+            with u_cols[1]:
+                if st.button("✏️", key=f"e_{idx}", help="Edit message", use_container_width=True):
                     st.session_state.editing_idx = idx
                     st.rerun()
 
@@ -448,7 +458,8 @@ elif messages:
                     if name and name not in src_names:
                         src_names.append(name)
                 if src_names:
-                    src_line = f'<div class="sources">\u2022 {" \u2022 ".join(src_names)}</div>'
+                    bullet = " • "
+                    src_line = f'<div class="sources">• {bullet.join(src_names)}</div>'
 
             st.markdown(f'<div class="msg-bot"><div class="text">{msg["content"]}</div>{src_line}</div>', unsafe_allow_html=True)
             

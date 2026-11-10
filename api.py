@@ -419,3 +419,10 @@ def ingest_youtube(request: IngestURLRequest):
             error_message=str(e)
         )
         raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("api:app", host="0.0.0.0", port=port)
+
